@@ -26,11 +26,12 @@ service cloud.firestore {
       return resource.data;
     }
 
-    function isValidWatchedMovie(data, userId) {
+    function isValidWatchedMedia(data, userId) {
       return data.userId is string &&
              data.userId == userId &&
              data.movieId is int &&
              data.movieId > 0 &&
+             (!('mediaType' in data) || data.mediaType in ['movie', 'tv']) &&
              data.title is string &&
              data.title.size() >= 1 &&
              data.title.size() <= 300 &&
@@ -44,38 +45,44 @@ service cloud.firestore {
              (!('overview' in data) || data.overview == null || (data.overview is string && data.overview.size() <= 4000)) &&
              (!('genres' in data) || (data.genres is list && data.genres.size() <= 10 && (data.genres.size() == 0 || data.genres[0] is string))) &&
              (!('runtime' in data) || (data.runtime is int && data.runtime >= 0 && data.runtime <= 2000)) &&
+             (!('numberOfSeasons' in data) || (data.numberOfSeasons is int && data.numberOfSeasons >= 0 && data.numberOfSeasons <= 200)) &&
+             (!('numberOfEpisodes' in data) || (data.numberOfEpisodes is int && data.numberOfEpisodes >= 0 && data.numberOfEpisodes <= 50000)) &&
+             (!('watchedSeason' in data) || (data.watchedSeason is int && data.watchedSeason >= 0 && data.watchedSeason <= 200)) &&
              data.watchedAt is timestamp &&
              data.watchedAt <= request.time &&
              data.updatedAt is timestamp &&
              data.updatedAt <= request.time;
     }
 
-    match /users/{userId}/watched/{movieId} {
-      allow get: if isOwner(userId) && isValidId(movieId);
+    match /users/{userId}/watched/{watchedId} {
+      allow get: if isOwner(userId) && isValidId(watchedId);
       allow list: if isOwner(userId);
 
       allow create: if isOwner(userId) &&
-                       isValidId(movieId) &&
-                       incoming().keys().hasAll(['userId', 'movieId', 'title', 'rating', 'watchedAt', 'updatedAt']) &&
+                       isValidId(watchedId) &&
+                       incoming().keys().hasAll(['userId', 'movieId', 'mediaType', 'title', 'rating', 'watchedAt', 'updatedAt']) &&
                        incoming().keys().hasOnly([
-                         'userId', 'movieId', 'title', 'posterPath', 'releaseDate',
+                         'userId', 'movieId', 'mediaType', 'title', 'posterPath', 'releaseDate',
                          'rating', 'userRating', 'note', 'overview', 'genres',
-                         'runtime', 'watchedAt', 'updatedAt'
+                         'runtime', 'numberOfSeasons', 'numberOfEpisodes', 'watchedSeason',
+                         'watchedAt', 'updatedAt'
                        ]) &&
-                       isValidWatchedMovie(incoming(), userId);
+                       isValidWatchedMedia(incoming(), userId);
 
       allow update: if isOwner(userId) &&
-                       isValidId(movieId) &&
-                       isValidWatchedMovie(incoming(), userId) &&
+                       isValidId(watchedId) &&
+                       isValidWatchedMedia(incoming(), userId) &&
                        incoming().userId == existing().userId &&
                        incoming().movieId == existing().movieId &&
+                       (!('mediaType' in existing()) || incoming().mediaType == existing().mediaType) &&
                        incoming().watchedAt == existing().watchedAt &&
                        incoming().diff(existing()).affectedKeys().hasOnly([
                          'userRating', 'note', 'title', 'posterPath', 'releaseDate',
-                         'rating', 'overview', 'genres', 'runtime', 'updatedAt'
+                         'rating', 'overview', 'genres', 'runtime',
+                         'numberOfSeasons', 'numberOfEpisodes', 'watchedSeason', 'updatedAt'
                        ]);
 
-      allow delete: if isOwner(userId) && isValidId(movieId);
+      allow delete: if isOwner(userId) && isValidId(watchedId);
     }
   }
 }

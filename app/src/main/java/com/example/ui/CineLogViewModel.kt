@@ -3,6 +3,7 @@ package com.example.ui
 import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.data.model.MediaType
 import com.example.data.model.MovieDetails
 import com.example.data.model.MovieSummary
 import com.example.data.model.WatchedMovie
@@ -36,6 +37,12 @@ enum class AppTab {
     WATCHED,
 }
 
+enum class DiscoverMediaFilter(val label: String) {
+    ALL("All"),
+    MOVIES("Movies"),
+    TV_SHOWS("TV Shows"),
+}
+
 enum class WatchedSortOption(val label: String) {
     RECENT("Recent"),
     TITLE("Title"),
@@ -45,6 +52,8 @@ enum class WatchedSortOption(val label: String) {
 
 enum class WatchedFilterOption(val label: String) {
     ALL("All"),
+    MOVIES("Movies"),
+    TV_SHOWS("TV Shows"),
     RATED_ONLY("Rated"),
     FIVE_STARS("5★ Favorites"),
 }
@@ -54,6 +63,7 @@ sealed interface DiscoverUiState {
     data class Success(
         val movies: List<MovieSummary>,
         val isSearchResult: Boolean,
+        val mediaFilter: DiscoverMediaFilter,
     ) : DiscoverUiState
     data class Error(
         val message: String,
@@ -68,7 +78,9 @@ sealed interface WatchedUiState {
 }
 
 data class MovieModalState(
+    val uniqueKey: String,
     val movieId: Long,
+    val mediaType: MediaType,
     val summary: MovieSummary,
     val details: MovieDetails? = null,
     val isLoadingDetails: Boolean = true,
@@ -89,6 +101,9 @@ class CineLogViewModel(
     private val _searchQuery = MutableStateFlow("")
     val searchQuery: StateFlow<String> = _searchQuery.asStateFlow()
 
+    private val _discoverMediaFilter = MutableStateFlow(DiscoverMediaFilter.ALL)
+    val discoverMediaFilter: StateFlow<DiscoverMediaFilter> = _discoverMediaFilter.asStateFlow()
+
     private val _refreshTrigger = MutableStateFlow(0)
 
     private val _sortOption = MutableStateFlow(WatchedSortOption.RECENT)
@@ -100,8 +115,8 @@ class CineLogViewModel(
     private val _watchedSearchQuery = MutableStateFlow("")
     val watchedSearchQuery: StateFlow<String> = _watchedSearchQuery.asStateFlow()
 
-    private val _pendingToggleIds = MutableStateFlow<Set<Long>>(emptySet())
-    val pendingToggleIds: StateFlow<Set<Long>> = _pendingToggleIds.asStateFlow()
+    private val _pendingToggleKeys = MutableStateFlow<Set<String>>(emptySet())
+    val pendingToggleKeys: StateFlow<Set<String>> = _pendingToggleKeys.asStateFlow()
 
     private val _movieModal = MutableStateFlow<MovieModalState?>(null)
     val movieModal: StateFlow<MovieModalState?> = _movieModal.asStateFlow()
@@ -112,34 +127,44 @@ class CineLogViewModel(
     val isTmdbKeyConfigured: Boolean
         get() = tmdbRepository.isApiKeyConfigured()
 
-    // 500ms debounced online search via TMDB API (shows trending when query is empty)
+    // 500ms debounced online search across Movies & TV Shows via TMDB API
     val discoverState: StateFlow<DiscoverUiState> = combine(
         _searchQuery
             .map { it.trim() }
             .debounce(500L)
             .distinctUntilChanged(),
+        _discoverMediaFilter,
         _refreshTrigger,
-    ) { query, _ -> query }
-        .flatMapLatest { query ->
+    ) { query, mediaFilter, _ -> query to mediaFilter }
+        .flatMapLatest { (query, mediaFilter) ->
             flow {
                 emit(DiscoverUiState.Loading)
                 val result = if (query.isBlank()) {
-                    tmdbRepository.getTrendingMovies()
+                    when (mediaFilter) {
+                        DiscoverMediaFilter.ALL -> tmdbRepository.getTrendingAllMedia()
+                        DiscoverMediaFilter.MOVIES -> tmdbRepository.getTrendingMovies()
+                        DiscoverMediaFilter.TV_SHOWS -> tmdbRepository.getTrendingTvShows()
+                    }
                 } else {
-                    tmdbRepository.searchMovies(query)
+                    when (mediaFilter) {
+                        DiscoverMediaFilter.ALL -> tmdbRepository.searchAllMedia(query)
+                        DiscoverMediaFilter.MOVIES -> tmdbRepository.searchMovies(query)
+                        DiscoverMediaFilter.TV_SHOWS -> tmdbRepository.searchTvShows(query)
+                    }
                 }
                 result.fold(
-                    onSuccess = { movies ->
+                    onSuccess = { items ->
                         emit(
                             DiscoverUiState.Success(
-                                movies = movies,
+                                movies = items,
                                 isSearchResult = query.isNotBlank(),
+                                mediaFilter = mediaFilter,
                             )
                         )
                     },
                     onFailure = { error ->
                         val isMissingKey = error is TmdbApiKeyMissingException
-                        val message = error.localizedMessage ?: "Failed to load movies."
+                        val message = error.localizedMessage ?: "Failed to load titles."
                         emit(
                             DiscoverUiState.Error(
                                 message = message,
@@ -165,8 +190,8 @@ class CineLogViewModel(
                 .firstOrNull()
             if (firestoreError == null && error is CancellationException) throw error
             val rootError = firestoreError ?: error
-            Log.w(TAG, "Error observing watched movies", rootError)
-            val msg = rootError.message ?: "Failed to sync watched movies."
+            Log.w(TAG, "Error observing watched items", rootError)
+            val msg = rootError.message ?: "Failed to sync watched library."
             _snackbarMessages.tryEmit(msg)
             emit(WatchedUiState.Error(msg))
         }
@@ -176,10 +201,10 @@ class CineLogViewModel(
             initialValue = WatchedUiState.Loading,
         )
 
-    val watchedMap: StateFlow<Map<Long, WatchedMovie>> = watchedState
+    val watchedMap: StateFlow<Map<String, WatchedMovie>> = watchedState
         .map { state ->
             when (state) {
-                is WatchedUiState.Success -> state.movies.associateBy { it.movieId }
+                is WatchedUiState.Success -> state.movies.associateBy { it.uniqueKey }
                 else -> emptyMap()
             }
         }
@@ -204,16 +229,18 @@ class CineLogViewModel(
         _watchedSearchQuery,
     ) { state, sort, filter, query ->
         val raw = (state as? WatchedUiState.Success)?.movies.orEmpty()
-        val filtered = raw.filter { movie ->
+        val filtered = raw.filter { item ->
             val matchesFilter = when (filter) {
                 WatchedFilterOption.ALL -> true
-                WatchedFilterOption.RATED_ONLY -> movie.userRating > 0
-                WatchedFilterOption.FIVE_STARS -> movie.userRating == 5
+                WatchedFilterOption.MOVIES -> !item.isTv
+                WatchedFilterOption.TV_SHOWS -> item.isTv
+                WatchedFilterOption.RATED_ONLY -> item.userRating > 0
+                WatchedFilterOption.FIVE_STARS -> item.userRating == 5
             }
             val q = query.trim()
             val matchesQuery = q.isEmpty() ||
-                movie.title.contains(q, ignoreCase = true) ||
-                movie.note.contains(q, ignoreCase = true)
+                item.title.contains(q, ignoreCase = true) ||
+                item.note.contains(q, ignoreCase = true)
             matchesFilter && matchesQuery
         }
         when (sort) {
@@ -241,6 +268,10 @@ class CineLogViewModel(
         _searchQuery.value = query
     }
 
+    fun onDiscoverMediaFilterSelected(filter: DiscoverMediaFilter) {
+        _discoverMediaFilter.value = filter
+    }
+
     fun retryDiscover() {
         _refreshTrigger.value += 1
     }
@@ -258,71 +289,77 @@ class CineLogViewModel(
     }
 
     fun toggleWatched(movie: MovieSummary) {
-        if (_pendingToggleIds.value.contains(movie.movieId)) return
-        val currentlyWatched = watchedMap.value.containsKey(movie.movieId)
+        val key = movie.uniqueKey
+        if (_pendingToggleKeys.value.contains(key)) return
+        val currentlyWatched = watchedMap.value.containsKey(key)
         viewModelScope.launch {
-            _pendingToggleIds.value += movie.movieId
+            _pendingToggleKeys.value += key
             try {
                 if (currentlyWatched) {
-                    watchedRepository.removeFromWatched(movie.movieId).fold(
+                    watchedRepository.removeFromWatched(movie.movieId, movie.mediaType).fold(
                         onSuccess = {
                             _snackbarMessages.tryEmit("Removed \"${movie.title}\" from watched.")
                         },
                         onFailure = { err ->
-                            _snackbarMessages.tryEmit(err.localizedMessage ?: "Failed to remove movie.")
+                            _snackbarMessages.tryEmit(err.localizedMessage ?: "Failed to remove item.")
                         }
                     )
                 } else {
-                    val details = _movieModal.value?.takeIf { it.movieId == movie.movieId }?.details
+                    val details = _movieModal.value?.takeIf { it.uniqueKey == key }?.details
                     watchedRepository.markAsWatched(movie, details).fold(
                         onSuccess = {
                             _snackbarMessages.tryEmit("Marked \"${movie.title}\" as watched.")
                         },
                         onFailure = { err ->
-                            _snackbarMessages.tryEmit(err.localizedMessage ?: "Failed to save watched movie.")
+                            _snackbarMessages.tryEmit(err.localizedMessage ?: "Failed to save watched item.")
                         }
                     )
                 }
             } finally {
-                _pendingToggleIds.value -= movie.movieId
+                _pendingToggleKeys.value -= key
             }
         }
     }
 
-    fun removeFromWatched(movieId: Long, title: String) {
-        if (_pendingToggleIds.value.contains(movieId)) return
+    fun removeFromWatched(movieId: Long, mediaType: MediaType, title: String) {
+        val key = "${mediaType.value}_$movieId"
+        if (_pendingToggleKeys.value.contains(key)) return
         viewModelScope.launch {
-            _pendingToggleIds.value += movieId
+            _pendingToggleKeys.value += key
             try {
-                watchedRepository.removeFromWatched(movieId).fold(
+                watchedRepository.removeFromWatched(movieId, mediaType).fold(
                     onSuccess = {
                         _snackbarMessages.tryEmit("Removed \"$title\" from watched.")
                     },
                     onFailure = { err ->
-                        _snackbarMessages.tryEmit(err.localizedMessage ?: "Failed to remove movie.")
+                        _snackbarMessages.tryEmit(err.localizedMessage ?: "Failed to remove item.")
                     }
                 )
             } finally {
-                _pendingToggleIds.value -= movieId
+                _pendingToggleKeys.value -= key
             }
         }
     }
 
     fun openMovieDetails(movie: MovieSummary) {
         _movieModal.value = MovieModalState(
+            uniqueKey = movie.uniqueKey,
             movieId = movie.movieId,
+            mediaType = movie.mediaType,
             summary = movie,
             details = null,
             isLoadingDetails = isTmdbKeyConfigured,
         )
         if (isTmdbKeyConfigured) {
-            fetchMovieDetails(movie.movieId)
+            fetchMediaDetails(movie.movieId, movie.mediaType)
         }
     }
 
     fun openWatchedDetails(watched: WatchedMovie) {
+        val mediaType = watched.resolvedMediaType
         val summary = MovieSummary(
             movieId = watched.movieId,
+            mediaType = mediaType,
             title = watched.title,
             posterPath = watched.posterPath,
             backdropPath = null,
@@ -330,9 +367,15 @@ class CineLogViewModel(
             rating = watched.rating,
             overview = watched.overview,
         )
-        val cachedDetails = if (watched.overview.isNotBlank() || watched.genres.isNotEmpty() || watched.runtime > 0) {
+        val cachedDetails = if (
+            watched.overview.isNotBlank() ||
+            watched.genres.isNotEmpty() ||
+            watched.runtime > 0 ||
+            watched.numberOfSeasons > 0
+        ) {
             MovieDetails(
                 movieId = watched.movieId,
+                mediaType = mediaType,
                 title = watched.title,
                 posterPath = watched.posterPath,
                 backdropPath = null,
@@ -342,25 +385,30 @@ class CineLogViewModel(
                 runtime = watched.runtime,
                 genres = watched.genres,
                 cast = emptyList(),
+                numberOfSeasons = watched.numberOfSeasons,
+                numberOfEpisodes = watched.numberOfEpisodes,
             )
         } else null
 
         _movieModal.value = MovieModalState(
+            uniqueKey = watched.uniqueKey,
             movieId = watched.movieId,
+            mediaType = mediaType,
             summary = summary,
             details = cachedDetails,
             isLoadingDetails = isTmdbKeyConfigured,
         )
         if (isTmdbKeyConfigured) {
-            fetchMovieDetails(watched.movieId)
+            fetchMediaDetails(watched.movieId, mediaType)
         }
     }
 
-    private fun fetchMovieDetails(movieId: Long) {
+    private fun fetchMediaDetails(movieId: Long, mediaType: MediaType) {
+        val targetKey = "${mediaType.value}_$movieId"
         viewModelScope.launch {
-            tmdbRepository.getMovieDetails(movieId).fold(
+            tmdbRepository.getMediaDetails(movieId, mediaType).fold(
                 onSuccess = { details ->
-                    if (_movieModal.value?.movieId == movieId) {
+                    if (_movieModal.value?.uniqueKey == targetKey) {
                         _movieModal.value = _movieModal.value?.copy(
                             summary = details.toSummary(),
                             details = details,
@@ -370,7 +418,7 @@ class CineLogViewModel(
                     }
                 },
                 onFailure = { error ->
-                    if (_movieModal.value?.movieId == movieId) {
+                    if (_movieModal.value?.uniqueKey == targetKey) {
                         _movieModal.value = _movieModal.value?.copy(
                             isLoadingDetails = false,
                             detailsError = error.localizedMessage,
@@ -385,19 +433,32 @@ class CineLogViewModel(
         _movieModal.value = null
     }
 
-    fun saveReview(movieId: Long, userRating: Int, note: String) {
+    fun saveReview(
+        movieId: Long,
+        mediaType: MediaType,
+        userRating: Int,
+        note: String,
+        watchedSeason: Int,
+    ) {
         val modal = _movieModal.value ?: return
-        if (modal.movieId != movieId) return
+        val key = "${mediaType.value}_$movieId"
+        if (modal.uniqueKey != key) return
         viewModelScope.launch {
             _movieModal.value = modal.copy(isSavingReview = true)
-            val isAlreadyWatched = watchedMap.value.containsKey(movieId)
+            val isAlreadyWatched = watchedMap.value.containsKey(key)
             val result = if (!isAlreadyWatched) {
-                watchedRepository.markAsWatched(modal.summary, modal.details).let { markRes ->
+                watchedRepository.markAsWatched(
+                    movie = modal.summary,
+                    details = modal.details,
+                    watchedSeason = watchedSeason,
+                ).let { markRes ->
                     if (markRes.isSuccess) {
                         watchedRepository.updateRatingAndNote(
                             movieId = movieId,
                             userRating = userRating,
                             note = note,
+                            mediaType = mediaType,
+                            watchedSeason = watchedSeason,
                             details = modal.details,
                         )
                     } else {
@@ -409,6 +470,8 @@ class CineLogViewModel(
                     movieId = movieId,
                     userRating = userRating,
                     note = note,
+                    mediaType = mediaType,
+                    watchedSeason = watchedSeason,
                     details = modal.details,
                 )
             }

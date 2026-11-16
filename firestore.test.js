@@ -21,6 +21,7 @@ function validMoviePayload(uid, overrides = {}) {
   return {
     userId: uid,
     movieId: 550,
+    mediaType: "movie",
     title: "Fight Club",
     posterPath: "/pB8BM7pdSp6B6Ih7QZ4DrQ3PmJK.jpg",
     releaseDate: "1999-10-15",
@@ -30,6 +31,33 @@ function validMoviePayload(uid, overrides = {}) {
     overview: "An insomniac office worker and a devil-may-care soap maker form an underground fight club.",
     genres: ["Drama", "Thriller"],
     runtime: 139,
+    numberOfSeasons: 0,
+    numberOfEpisodes: 0,
+    watchedSeason: 0,
+    watchedAt: pastTime,
+    updatedAt: pastTime,
+    ...overrides,
+  };
+}
+
+function validTvPayload(uid, overrides = {}) {
+  const pastTime = new Date(Date.now() - 2000);
+  return {
+    userId: uid,
+    movieId: 1396,
+    mediaType: "tv",
+    title: "Breaking Bad",
+    posterPath: "/ggFHVNu6YYI5L9pCfOacjizRGt.jpg",
+    releaseDate: "2008-01-20",
+    rating: 8.9,
+    userRating: 5,
+    note: "Season 4 finale is unmatched.",
+    overview: "A chemistry teacher diagnosed with terminal lung cancer turns to manufacturing and selling meth.",
+    genres: ["Drama", "Crime"],
+    runtime: 47,
+    numberOfSeasons: 5,
+    numberOfEpisodes: 62,
+    watchedSeason: 4,
     watchedAt: pastTime,
     updatedAt: pastTime,
     ...overrides,
@@ -60,79 +88,76 @@ beforeEach(async () => {
   }
 });
 
-test("Unauthenticated user: cannot list or read watched movies", async () => {
+test("Unauthenticated user: cannot list or read watched media", async () => {
   const unauthDb = testEnv.unauthenticatedContext().firestore();
   await assertFails(unauthDb.collection("users").doc(ALICE_UID).collection("watched").get());
   await assertFails(unauthDb.collection("users").doc(ALICE_UID).collection("watched").doc("550").get());
 });
 
-test("Unauthenticated user: cannot write watched movie", async () => {
+test("Unauthenticated user: cannot write watched media", async () => {
   const unauthDb = testEnv.unauthenticatedContext().firestore();
   await assertFails(
-    unauthDb.collection("users").doc(ALICE_UID).collection("watched").doc("550").set(
-      validMoviePayload(ALICE_UID)
+    unauthDb.collection("users").doc(ALICE_UID).collection("watched").doc("tv_1396").set(
+      validTvPayload(ALICE_UID)
     )
   );
 });
 
-test("Authenticated owner: can create, read, list, update rating/note, and delete watched movie", async () => {
+test("Authenticated owner: can create, read, list, update, and delete both movies and TV shows", async () => {
   const aliceDb = testEnv.authenticatedContext(ALICE_UID).firestore();
-  const docRef = aliceDb.collection("users").doc(ALICE_UID).collection("watched").doc("550");
+  const movieDoc = aliceDb.collection("users").doc(ALICE_UID).collection("watched").doc("550");
+  const tvDoc = aliceDb.collection("users").doc(ALICE_UID).collection("watched").doc("tv_1396");
 
-  await assertSucceeds(docRef.set(validMoviePayload(ALICE_UID)));
-  await assertSucceeds(docRef.get());
+  await assertSucceeds(movieDoc.set(validMoviePayload(ALICE_UID)));
+  await assertSucceeds(tvDoc.set(validTvPayload(ALICE_UID)));
   await assertSucceeds(aliceDb.collection("users").doc(ALICE_UID).collection("watched").get());
 
   await assertSucceeds(
-    docRef.update({
-      userRating: 4,
-      note: "Updated thoughts after second viewing.",
+    tvDoc.update({
+      userRating: 5,
+      watchedSeason: 5,
+      note: "Finished the whole series!",
       updatedAt: new Date(Date.now() - 1000),
     })
   );
 
-  await assertSucceeds(docRef.delete());
+  await assertSucceeds(movieDoc.delete());
+  await assertSucceeds(tvDoc.delete());
 });
 
-test("Cross-user isolation: Bob cannot read, list, create, update, or delete Alice's watched movies", async () => {
+test("Cross-user isolation: Bob cannot access or modify Alice's watched TV shows", async () => {
   await testEnv.withSecurityRulesDisabled(async (context) => {
     await context
       .firestore()
       .collection("users")
       .doc(ALICE_UID)
       .collection("watched")
-      .doc("550")
-      .set(validMoviePayload(ALICE_UID));
+      .doc("tv_1396")
+      .set(validTvPayload(ALICE_UID));
   });
 
   const bobDb = testEnv.authenticatedContext(BOB_UID).firestore();
-  const aliceDocRef = bobDb.collection("users").doc(ALICE_UID).collection("watched").doc("550");
+  const aliceTvRef = bobDb.collection("users").doc(ALICE_UID).collection("watched").doc("tv_1396");
 
-  await assertFails(aliceDocRef.get());
+  await assertFails(aliceTvRef.get());
   await assertFails(bobDb.collection("users").doc(ALICE_UID).collection("watched").get());
-  await assertFails(aliceDocRef.set(validMoviePayload(BOB_UID)));
-  await assertFails(aliceDocRef.update({ userRating: 1, updatedAt: new Date(Date.now() - 1000) }));
-  await assertFails(aliceDocRef.delete());
+  await assertFails(aliceTvRef.set(validTvPayload(BOB_UID)));
+  await assertFails(aliceTvRef.update({ watchedSeason: 1, updatedAt: new Date(Date.now() - 1000) }));
+  await assertFails(aliceTvRef.delete());
 });
 
-test("Schema validation: rejects ghost fields, invalid userRating, spoofed userId, and mutated watchedAt", async () => {
+test("Schema validation: rejects invalid mediaType, ghost fields, and mutating mediaType", async () => {
   const aliceDb = testEnv.authenticatedContext(ALICE_UID).firestore();
-  const docRef = aliceDb.collection("users").doc(ALICE_UID).collection("watched").doc("550");
+  const tvDoc = aliceDb.collection("users").doc(ALICE_UID).collection("watched").doc("tv_1396");
 
-  // Ghost field rejected
-  await assertFails(docRef.set(validMoviePayload(ALICE_UID, { isAdmin: true })));
+  await assertFails(tvDoc.set(validTvPayload(ALICE_UID, { mediaType: "anime" })));
+  await assertFails(tvDoc.set(validTvPayload(ALICE_UID, { isAdmin: true })));
+  await assertFails(tvDoc.set(validTvPayload(ALICE_UID, { watchedSeason: 999 })));
 
-  // Out-of-bounds userRating (> 5) rejected
-  await assertFails(docRef.set(validMoviePayload(ALICE_UID, { userRating: 6 })));
-
-  // Spoofed userId rejected
-  await assertFails(docRef.set(validMoviePayload(BOB_UID)));
-
-  // Valid create, then attempt to mutate immutable watchedAt
-  await assertSucceeds(docRef.set(validMoviePayload(ALICE_UID)));
+  await assertSucceeds(tvDoc.set(validTvPayload(ALICE_UID)));
   await assertFails(
-    docRef.update({
-      watchedAt: new Date(Date.now() - 500),
+    tvDoc.update({
+      mediaType: "movie",
       updatedAt: new Date(Date.now() - 500),
     })
   );

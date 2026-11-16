@@ -1,12 +1,15 @@
 package com.example.data.repository
 
 import com.example.BuildConfig
+import com.example.data.model.MediaType
 import com.example.data.model.MovieDetails
 import com.example.data.model.MovieSummary
 import com.example.data.remote.TmdbApiService
 import com.squareup.moshi.Moshi
 import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import okhttp3.OkHttpClient
 import okhttp3.logging.HttpLoggingInterceptor
 import org.json.JSONObject
@@ -80,12 +83,80 @@ class TmdbRepository(
             }.results.map { it.toSummary() }
         }
 
+    suspend fun searchTvShows(query: String): Result<List<MovieSummary>> =
+        runTmdbCallWithFallback { credential, mode ->
+            when (mode) {
+                AuthMode.API_KEY -> apiService.searchTvShows(
+                    query = query.trim(),
+                    apiKey = credential,
+                )
+                AuthMode.BEARER_TOKEN -> apiService.searchTvShows(
+                    query = query.trim(),
+                    bearerAuth = "Bearer $credential",
+                )
+            }.results.map { it.toSummary() }
+        }
+
+    suspend fun searchAllMedia(query: String): Result<List<MovieSummary>> =
+        runTmdbCallWithFallback { credential, mode ->
+            coroutineScope {
+                val moviesDeferred = async {
+                    when (mode) {
+                        AuthMode.API_KEY -> apiService.searchMovies(query = query.trim(), apiKey = credential)
+                        AuthMode.BEARER_TOKEN -> apiService.searchMovies(query = query.trim(), bearerAuth = "Bearer $credential")
+                    }.results.map { it.toSummary() }
+                }
+                val tvDeferred = async {
+                    when (mode) {
+                        AuthMode.API_KEY -> apiService.searchTvShows(query = query.trim(), apiKey = credential)
+                        AuthMode.BEARER_TOKEN -> apiService.searchTvShows(query = query.trim(), bearerAuth = "Bearer $credential")
+                    }.results.map { it.toSummary() }
+                }
+                (moviesDeferred.await() + tvDeferred.await())
+                    .sortedByDescending { it.popularity }
+            }
+        }
+
     suspend fun getTrendingMovies(): Result<List<MovieSummary>> =
         runTmdbCallWithFallback { credential, mode ->
             when (mode) {
                 AuthMode.API_KEY -> apiService.getTrendingMovies(apiKey = credential)
                 AuthMode.BEARER_TOKEN -> apiService.getTrendingMovies(bearerAuth = "Bearer $credential")
             }.results.map { it.toSummary() }
+        }
+
+    suspend fun getTrendingTvShows(): Result<List<MovieSummary>> =
+        runTmdbCallWithFallback { credential, mode ->
+            when (mode) {
+                AuthMode.API_KEY -> apiService.getTrendingTvShows(apiKey = credential)
+                AuthMode.BEARER_TOKEN -> apiService.getTrendingTvShows(bearerAuth = "Bearer $credential")
+            }.results.map { it.toSummary() }
+        }
+
+    suspend fun getTrendingAllMedia(): Result<List<MovieSummary>> =
+        runTmdbCallWithFallback { credential, mode ->
+            coroutineScope {
+                val moviesDeferred = async {
+                    when (mode) {
+                        AuthMode.API_KEY -> apiService.getTrendingMovies(apiKey = credential)
+                        AuthMode.BEARER_TOKEN -> apiService.getTrendingMovies(bearerAuth = "Bearer $credential")
+                    }.results.map { it.toSummary() }
+                }
+                val tvDeferred = async {
+                    when (mode) {
+                        AuthMode.API_KEY -> apiService.getTrendingTvShows(apiKey = credential)
+                        AuthMode.BEARER_TOKEN -> apiService.getTrendingTvShows(bearerAuth = "Bearer $credential")
+                    }.results.map { it.toSummary() }
+                }
+                (moviesDeferred.await() + tvDeferred.await())
+                    .sortedByDescending { it.popularity }
+            }
+        }
+
+    suspend fun getMediaDetails(mediaId: Long, mediaType: MediaType): Result<MovieDetails> =
+        when (mediaType) {
+            MediaType.MOVIE -> getMovieDetails(mediaId)
+            MediaType.TV -> getTvShowDetails(mediaId)
         }
 
     suspend fun getMovieDetails(movieId: Long): Result<MovieDetails> =
@@ -97,6 +168,20 @@ class TmdbRepository(
                 )
                 AuthMode.BEARER_TOKEN -> apiService.getMovieDetails(
                     movieId = movieId,
+                    bearerAuth = "Bearer $credential",
+                )
+            }.toDetails()
+        }
+
+    suspend fun getTvShowDetails(tvId: Long): Result<MovieDetails> =
+        runTmdbCallWithFallback { credential, mode ->
+            when (mode) {
+                AuthMode.API_KEY -> apiService.getTvShowDetails(
+                    tvId = tvId,
+                    apiKey = credential,
+                )
+                AuthMode.BEARER_TOKEN -> apiService.getTvShowDetails(
+                    tvId = tvId,
                     bearerAuth = "Bearer $credential",
                 )
             }.toDetails()
@@ -114,7 +199,6 @@ class TmdbRepository(
             throw e
         } catch (e: HttpException) {
             if (e.code() == 401) {
-                // Retry once with the alternate auth mode in case of an unusual token format
                 val fallbackMode = if (primaryMode == AuthMode.API_KEY) {
                     AuthMode.BEARER_TOKEN
                 } else {
@@ -153,7 +237,7 @@ class TmdbRepository(
                 }
                 append(" Open AI Studio → Secrets, verify TMDB_API_KEY has your active TMDB v3 API Key or Read Access Token (with no extra spaces or quotes), then rebuild.")
             }
-            404 -> "Movie not found on TMDB."
+            404 -> "Title not found on TMDB."
             429 -> "TMDB rate limit reached. Please wait a moment and try again."
             else -> "TMDB API error (${e.code()})${serverReason?.let { ": $it" } ?: "."}"
         }

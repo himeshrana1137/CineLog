@@ -26,6 +26,7 @@ import androidx.compose.material.icons.automirrored.rounded.Sort
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.DeleteOutline
 import androidx.compose.material.icons.rounded.Edit
+import androidx.compose.material.icons.rounded.LiveTv
 import androidx.compose.material.icons.rounded.Movie
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Star
@@ -109,19 +110,19 @@ fun WatchedScreen(
                     CineEmptyState(
                         title = stringResource(R.string.empty_watched_title),
                         subtitle = stringResource(R.string.empty_watched_subtitle),
-                        actionLabel = "Discover Movies",
+                        actionLabel = "Discover Movies & TV",
                         onActionClick = onExploreClick,
                         useReelArtwork = true,
                         modifier = Modifier.fillMaxSize(),
                     )
                 } else {
-                    val totalCount = watchedState.movies.size
+                    val moviesCount = watchedState.movies.count { !it.isTv }
+                    val tvCount = watchedState.movies.count { it.isTv }
                     val rated = watchedState.movies.filter { it.userRating > 0 }
                     val avgPersonal = if (rated.isNotEmpty()) {
                         String.format(Locale.US, "%.1f", rated.map { it.userRating }.average())
                     } else "—"
 
-                    // Header stats + search + sort/filter controls
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -148,8 +149,8 @@ fun WatchedScreen(
                                         color = MaterialTheme.colorScheme.primary,
                                     )
                                     Text(
-                                        text = "$totalCount ${if (totalCount == 1) "Film" else "Films"} Logged",
-                                        style = MaterialTheme.typography.headlineMedium,
+                                        text = "$moviesCount ${if (moviesCount == 1) "Movie" else "Movies"} • $tvCount ${if (tvCount == 1) "Series" else "Series"}",
+                                        style = MaterialTheme.typography.titleLarge,
                                         color = MaterialTheme.colorScheme.onSurface,
                                     )
                                 }
@@ -185,7 +186,7 @@ fun WatchedScreen(
                             singleLine = true,
                             placeholder = {
                                 Text(
-                                    text = "Filter your watched movies or notes…",
+                                    text = "Filter watched titles or notes…",
                                     style = MaterialTheme.typography.bodyMedium,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
@@ -266,7 +267,7 @@ fun WatchedScreen(
 
                     if (filteredMovies.isEmpty()) {
                         CineEmptyState(
-                            title = "No matching watched movies",
+                            title = "No matching watched titles",
                             subtitle = "Try clearing your filter chips or search text.",
                             actionLabel = "Reset Filters",
                             onActionClick = {
@@ -286,7 +287,7 @@ fun WatchedScreen(
                         ) {
                             items(
                                 items = filteredMovies,
-                                key = { it.movieId },
+                                key = { it.uniqueKey },
                             ) { movie ->
                                 WatchedMovieListCard(
                                     movie = movie,
@@ -320,7 +321,7 @@ private fun WatchedMovieListCard(
             .fillMaxWidth()
             .clip(MaterialTheme.shapes.medium)
             .clickable(onClick = onClick)
-            .testTag("watched_movie_card_${movie.movieId}"),
+            .testTag("watched_movie_card_${movie.uniqueKey}"),
     ) {
         Row(
             modifier = Modifier
@@ -328,7 +329,7 @@ private fun WatchedMovieListCard(
                 .padding(12.dp),
             horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            // Poster thumbnail
+            // Poster thumbnail with TV badge if applicable
             Box(
                 modifier = Modifier
                     .width(86.dp)
@@ -347,10 +348,28 @@ private fun WatchedMovieListCard(
                     )
                 } else {
                     Icon(
-                        imageVector = Icons.Rounded.Movie,
+                        imageVector = if (movie.isTv) Icons.Rounded.LiveTv else Icons.Rounded.Movie,
                         contentDescription = null,
                         tint = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
+                }
+
+                if (movie.isTv) {
+                    Surface(
+                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.92f),
+                        shape = RoundedCornerShape(6.dp),
+                        modifier = Modifier
+                            .align(Alignment.TopStart)
+                            .padding(5.dp),
+                    ) {
+                        Text(
+                            text = "TV",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onPrimary,
+                            fontWeight = FontWeight.ExtraBold,
+                            modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp),
+                        )
+                    }
                 }
             }
 
@@ -397,8 +416,21 @@ private fun WatchedMovieListCard(
                     }
                 }
 
+                val subtitle = buildString {
+                    append(movie.releaseYear)
+                    if (movie.isTv) {
+                        if (movie.watchedSeason > 0) {
+                            append(" • Season ${movie.watchedSeason}")
+                        } else if (movie.numberOfSeasons > 0) {
+                            append(" • ${movie.numberOfSeasons} Seasons")
+                        } else {
+                            append(" • TV Series")
+                        }
+                    }
+                    append(" • $watchedDateText")
+                }
                 Text(
-                    text = "${movie.releaseYear} • Watched $watchedDateText",
+                    text = subtitle,
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -464,7 +496,7 @@ private fun WatchedMovieListCard(
                         onClick = onRemoveClick,
                         modifier = Modifier
                             .minimumInteractiveComponentSize()
-                            .testTag("remove_watched_button_${movie.movieId}"),
+                            .testTag("remove_watched_button_${movie.uniqueKey}"),
                     ) {
                         Icon(
                             imageVector = Icons.Rounded.DeleteOutline,

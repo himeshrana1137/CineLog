@@ -2,6 +2,7 @@ package com.example.ui.screens
 
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -28,6 +29,7 @@ import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.DeleteOutline
+import androidx.compose.material.icons.rounded.LiveTv
 import androidx.compose.material.icons.rounded.Person
 import androidx.compose.material.icons.rounded.Schedule
 import androidx.compose.material.icons.rounded.Star
@@ -35,6 +37,8 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -70,6 +74,7 @@ import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import com.example.R
 import com.example.data.model.CastMember
+import com.example.data.model.MediaType
 import com.example.data.model.WatchedMovie
 import com.example.ui.MovieModalState
 import com.example.ui.components.InteractiveStarRatingBar
@@ -90,24 +95,29 @@ fun MovieDetailsSheet(
     isTogglingWatched: Boolean,
     onDismiss: () -> Unit,
     onToggleWatched: () -> Unit,
-    onSaveReview: (userRating: Int, note: String) -> Unit,
+    onSaveReview: (userRating: Int, note: String, watchedSeason: Int) -> Unit,
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val summary = modalState.summary
     val details = modalState.details
     val isWatched = watchedMovie != null
+    val isTv = modalState.mediaType == MediaType.TV
 
-    var draftRating by remember(modalState.movieId, watchedMovie?.userRating) {
+    var draftRating by remember(modalState.uniqueKey, watchedMovie?.userRating) {
         mutableIntStateOf(watchedMovie?.userRating ?: 0)
     }
-    var draftNote by remember(modalState.movieId, watchedMovie?.note) {
+    var draftNote by remember(modalState.uniqueKey, watchedMovie?.note) {
         mutableStateOf(watchedMovie?.note.orEmpty())
     }
+    var draftSeason by remember(modalState.uniqueKey, watchedMovie?.watchedSeason) {
+        mutableIntStateOf(watchedMovie?.watchedSeason ?: 0)
+    }
 
-    LaunchedEffect(watchedMovie?.userRating, watchedMovie?.note) {
+    LaunchedEffect(watchedMovie?.userRating, watchedMovie?.note, watchedMovie?.watchedSeason) {
         if (watchedMovie != null) {
             draftRating = watchedMovie.userRating
             draftNote = watchedMovie.note
+            draftSeason = watchedMovie.watchedSeason
         }
     }
 
@@ -156,6 +166,36 @@ fun MovieDetailsSheet(
                         )
                 )
 
+                // TV Series pill (top-left)
+                if (isTv) {
+                    Surface(
+                        color = MaterialTheme.colorScheme.primary,
+                        shape = RoundedCornerShape(8.dp),
+                        modifier = Modifier
+                            .align(Alignment.TopStart)
+                            .padding(14.dp),
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(5.dp),
+                        ) {
+                            Icon(
+                                imageVector = Icons.Rounded.LiveTv,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.onPrimary,
+                                modifier = Modifier.size(15.dp),
+                            )
+                            Text(
+                                text = "TV SERIES",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.onPrimary,
+                                fontWeight = FontWeight.Bold,
+                            )
+                        }
+                    }
+                }
+
                 // Close button
                 Surface(
                     color = CineObsidian.copy(alpha = 0.7f),
@@ -178,7 +218,7 @@ fun MovieDetailsSheet(
                     }
                 }
 
-                // Title & meta pinned at bottom of hero
+                // Title & tagline pinned at bottom of hero
                 Column(
                     modifier = Modifier
                         .align(Alignment.BottomStart)
@@ -215,10 +255,10 @@ fun MovieDetailsSheet(
                     .padding(horizontal = 20.dp, vertical = 14.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp),
             ) {
-                // Year • Runtime • TMDB Score
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                // Year • Seasons/Episodes • Runtime • TMDB Score
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     Surface(
                         color = CineElevated,
@@ -232,26 +272,49 @@ fun MovieDetailsSheet(
                         )
                     }
 
+                    val totalSeasons = details?.numberOfSeasons ?: watchedMovie?.numberOfSeasons ?: 0
+                    val totalEpisodes = details?.numberOfEpisodes ?: watchedMovie?.numberOfEpisodes ?: 0
+                    if (isTv && totalSeasons > 0) {
+                        Surface(
+                            color = CineElevated,
+                            shape = RoundedCornerShape(8.dp),
+                        ) {
+                            val epSuffix = if (totalEpisodes > 0) " • $totalEpisodes Eps" else ""
+                            Text(
+                                text = "$totalSeasons ${if (totalSeasons == 1) "Season" else "Seasons"}$epSuffix",
+                                style = MaterialTheme.typography.labelLarge,
+                                color = MaterialTheme.colorScheme.onSurface,
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+                            )
+                        }
+                    }
+
                     val runtime = details?.runtime ?: watchedMovie?.runtime ?: 0
                     if (runtime > 0) {
                         val hours = runtime / 60
                         val mins = runtime % 60
                         val runtimeText = if (hours > 0) "${hours}h ${mins}m" else "${mins}m"
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(4.dp),
+                        Surface(
+                            color = CineElevated,
+                            shape = RoundedCornerShape(8.dp),
                         ) {
-                            Icon(
-                                imageVector = Icons.Rounded.Schedule,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.size(16.dp),
-                            )
-                            Text(
-                                text = runtimeText,
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
+                            Row(
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Rounded.Schedule,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.size(15.dp),
+                                )
+                                Text(
+                                    text = if (isTv) "$runtimeText / ep" else runtimeText,
+                                    style = MaterialTheme.typography.labelLarge,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
                         }
                     }
 
@@ -381,7 +444,7 @@ fun MovieDetailsSheet(
                     }
                 }
 
-                // Personal Rating & Watch Note card
+                // Personal Rating, Season Watched (for TV) & Watch Note card
                 Surface(
                     color = CineElevated,
                     shape = MaterialTheme.shapes.medium,
@@ -392,6 +455,49 @@ fun MovieDetailsSheet(
                         modifier = Modifier.padding(16.dp),
                         verticalArrangement = Arrangement.spacedBy(10.dp),
                     ) {
+                        if (isTv) {
+                            val availableSeasons = maxOf(
+                                details?.numberOfSeasons ?: 0,
+                                watchedMovie?.numberOfSeasons ?: 0,
+                                draftSeason,
+                            ).coerceIn(0, 50)
+                            Text(
+                                text = "Season Watched",
+                                style = MaterialTheme.typography.titleMedium,
+                                color = MaterialTheme.colorScheme.onSurface,
+                            )
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .horizontalScroll(rememberScrollState()),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            ) {
+                                FilterChip(
+                                    selected = draftSeason == 0,
+                                    onClick = { draftSeason = 0 },
+                                    label = { Text("All / Full Series") },
+                                    colors = FilterChipDefaults.filterChipColors(
+                                        selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
+                                        selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                                    ),
+                                    modifier = Modifier.testTag("season_chip_all"),
+                                )
+                                val chipCount = if (availableSeasons > 0) availableSeasons else 5
+                                for (season in 1..chipCount) {
+                                    FilterChip(
+                                        selected = draftSeason == season,
+                                        onClick = { draftSeason = season },
+                                        label = { Text("S$season") },
+                                        colors = FilterChipDefaults.filterChipColors(
+                                            selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
+                                            selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                                        ),
+                                        modifier = Modifier.testTag("season_chip_$season"),
+                                    )
+                                }
+                            }
+                        }
+
                         Text(
                             text = stringResource(R.string.your_rating_label),
                             style = MaterialTheme.typography.titleMedium,
@@ -433,7 +539,7 @@ fun MovieDetailsSheet(
                         )
 
                         Button(
-                            onClick = { onSaveReview(draftRating, draftNote) },
+                            onClick = { onSaveReview(draftRating, draftNote, draftSeason) },
                             enabled = !modalState.isSavingReview,
                             shape = RoundedCornerShape(10.dp),
                             modifier = Modifier

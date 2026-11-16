@@ -4,9 +4,11 @@ import android.content.Context
 import com.example.R
 import com.example.data.firebase.OperationType
 import com.example.data.firebase.handleFirestoreError
+import com.example.data.model.MediaType
 import com.example.data.model.MovieDetails
 import com.example.data.model.MovieSummary
 import com.example.data.model.WatchedMovie
+import com.example.data.model.firestoreWatchedDocId
 import com.google.firebase.Firebase
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.auth
@@ -65,13 +67,17 @@ class WatchedMovieRepository(
         )
     }
 
-    suspend fun getWatchedMovie(movieId: Long): Result<WatchedMovie?> {
+    suspend fun getWatchedMovie(
+        movieId: Long,
+        mediaType: MediaType = MediaType.MOVIE,
+    ): Result<WatchedMovie?> {
         val uid = try {
             requireUserId()
         } catch (e: Exception) {
             return Result.failure(e)
         }
-        val docRef = watchedCollection(uid).document(movieId.toString())
+        val docId = firestoreWatchedDocId(movieId, mediaType)
+        val docRef = watchedCollection(uid).document(docId)
         return try {
             val snap = docRef.get().await()
             val movie = snap.toObject(
@@ -90,16 +96,19 @@ class WatchedMovieRepository(
     suspend fun markAsWatched(
         movie: MovieSummary,
         details: MovieDetails? = null,
+        watchedSeason: Int = 0,
     ): Result<Unit> {
         val uid = try {
             requireUserId()
         } catch (e: Exception) {
             return Result.failure(e)
         }
-        val docRef = watchedCollection(uid).document(movie.movieId.toString())
+        val docId = firestoreWatchedDocId(movie.movieId, movie.mediaType)
+        val docRef = watchedCollection(uid).document(docId)
         val payload = buildMap<String, Any> {
             put("userId", uid)
             put("movieId", movie.movieId)
+            put("mediaType", movie.mediaType.value)
             put("title", movie.title.take(300).ifBlank { "Untitled" })
             movie.posterPath?.takeIf { it.isNotBlank() }?.let { put("posterPath", it.take(500)) }
             put("releaseDate", movie.releaseDate.take(32))
@@ -110,7 +119,13 @@ class WatchedMovieRepository(
             if (details != null) {
                 put("genres", details.genres.take(10))
                 put("runtime", details.runtime.coerceIn(0, 2000))
+                put("numberOfSeasons", details.numberOfSeasons.coerceIn(0, 200))
+                put("numberOfEpisodes", details.numberOfEpisodes.coerceIn(0, 50000))
+            } else {
+                put("numberOfSeasons", 0)
+                put("numberOfEpisodes", 0)
             }
+            put("watchedSeason", watchedSeason.coerceIn(0, 200))
             put("watchedAt", FieldValue.serverTimestamp())
             put("updatedAt", FieldValue.serverTimestamp())
         }
@@ -130,6 +145,8 @@ class WatchedMovieRepository(
         movieId: Long,
         userRating: Int,
         note: String,
+        mediaType: MediaType = MediaType.MOVIE,
+        watchedSeason: Int = 0,
         details: MovieDetails? = null,
     ): Result<Unit> {
         val uid = try {
@@ -137,14 +154,18 @@ class WatchedMovieRepository(
         } catch (e: Exception) {
             return Result.failure(e)
         }
-        val docRef = watchedCollection(uid).document(movieId.toString())
+        val docId = firestoreWatchedDocId(movieId, mediaType)
+        val docRef = watchedCollection(uid).document(docId)
         val updates = buildMap<String, Any> {
             put("userRating", userRating.coerceIn(0, 5))
             put("note", note.trim().take(1000))
+            put("watchedSeason", watchedSeason.coerceIn(0, 200))
             if (details != null) {
                 put("overview", details.overview.take(4000))
                 put("genres", details.genres.take(10))
                 put("runtime", details.runtime.coerceIn(0, 2000))
+                put("numberOfSeasons", details.numberOfSeasons.coerceIn(0, 200))
+                put("numberOfEpisodes", details.numberOfEpisodes.coerceIn(0, 50000))
             }
             put("updatedAt", FieldValue.serverTimestamp())
         }
@@ -160,13 +181,17 @@ class WatchedMovieRepository(
         }
     }
 
-    suspend fun removeFromWatched(movieId: Long): Result<Unit> {
+    suspend fun removeFromWatched(
+        movieId: Long,
+        mediaType: MediaType = MediaType.MOVIE,
+    ): Result<Unit> {
         val uid = try {
             requireUserId()
         } catch (e: Exception) {
             return Result.failure(e)
         }
-        val docRef = watchedCollection(uid).document(movieId.toString())
+        val docId = firestoreWatchedDocId(movieId, mediaType)
+        val docRef = watchedCollection(uid).document(docId)
         return try {
             docRef.delete().await()
             Result.success(Unit)

@@ -296,7 +296,7 @@ fun DiscoverMovieCard(
                     }
                 }
 
-                // Personal star badge (top-right) if user rated it
+                // Top-right badge: Personal rating if rated, or TV Series tag for TV shows
                 if (isWatched && userRating > 0) {
                     Surface(
                         color = CineGold,
@@ -309,6 +309,22 @@ fun DiscoverMovieCard(
                             text = "${userRating}★",
                             style = MaterialTheme.typography.labelMedium,
                             color = CineObsidian,
+                            fontWeight = FontWeight.ExtraBold,
+                            modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp),
+                        )
+                    }
+                } else if (movie.isTv) {
+                    Surface(
+                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.92f),
+                        shape = RoundedCornerShape(8.dp),
+                        modifier = Modifier
+                            .align(Alignment.TopEnd)
+                            .padding(8.dp),
+                    ) {
+                        Text(
+                            text = "TV",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onPrimary,
                             fontWeight = FontWeight.ExtraBold,
                             modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp),
                         )
@@ -329,7 +345,7 @@ fun DiscoverMovieCard(
                     overflow = TextOverflow.Ellipsis,
                 )
                 Text(
-                    text = movie.releaseYear,
+                    text = if (movie.isTv) "${movie.releaseYear} • TV Series" else movie.releaseYear,
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )

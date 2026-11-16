@@ -2,7 +2,7 @@
   "entities": {
     "WatchedMovie": {
       "title": "WatchedMovie",
-      "description": "A movie marked as watched by an authenticated user, including TMDB metadata, watch timestamp, and personal rating/note.",
+      "description": "A movie or TV series marked as watched by an authenticated user, including TMDB metadata, watch timestamp, optional season progress, and personal rating/note.",
       "type": "object",
       "properties": {
         "userId": {
@@ -11,11 +11,16 @@
         },
         "movieId": {
           "type": "integer",
-          "description": "TMDB numeric movie ID."
+          "description": "TMDB numeric movie or TV show ID."
+        },
+        "mediaType": {
+          "type": "string",
+          "enum": ["movie", "tv"],
+          "description": "Media type: 'movie' or 'tv'."
         },
         "title": {
           "type": "string",
-          "description": "Movie title."
+          "description": "Movie title or TV series name."
         },
         "posterPath": {
           "type": "string",
@@ -23,7 +28,7 @@
         },
         "releaseDate": {
           "type": "string",
-          "description": "Movie release date in YYYY-MM-DD format."
+          "description": "Movie release date or TV first air date in YYYY-MM-DD format."
         },
         "rating": {
           "type": "number",
@@ -39,7 +44,7 @@
         },
         "overview": {
           "type": "string",
-          "description": "Movie synopsis from TMDB."
+          "description": "Movie or TV series synopsis from TMDB."
         },
         "genres": {
           "type": "array",
@@ -47,22 +52,35 @@
         },
         "runtime": {
           "type": "integer",
-          "description": "Movie runtime in minutes."
+          "description": "Movie runtime or average TV episode runtime in minutes."
+        },
+        "numberOfSeasons": {
+          "type": "integer",
+          "description": "Total number of seasons for TV series (0 for movies)."
+        },
+        "numberOfEpisodes": {
+          "type": "integer",
+          "description": "Total number of episodes for TV series (0 for movies)."
+        },
+        "watchedSeason": {
+          "type": "integer",
+          "description": "Specific season watched by the user (0 = full show / unspecified, 1+ = specific season)."
         },
         "watchedAt": {
           "type": "string",
           "format": "date-time",
-          "description": "Server timestamp when the movie was marked as watched (FieldValue.serverTimestamp())."
+          "description": "Server timestamp when marked as watched (FieldValue.serverTimestamp())."
         },
         "updatedAt": {
           "type": "string",
           "format": "date-time",
-          "description": "Server timestamp of the latest rating or note update (FieldValue.serverTimestamp())."
+          "description": "Server timestamp of the latest update (FieldValue.serverTimestamp())."
         }
       },
       "required": [
         "userId",
         "movieId",
+        "mediaType",
         "title",
         "rating",
         "watchedAt",
@@ -71,11 +89,11 @@
     }
   },
   "firestore": {
-    "/users/{userId}/watched/{movieId}": {
+    "/users/{userId}/watched/{watchedId}": {
       "schema": {
         "$ref": "#/entities/WatchedMovie"
       },
-      "description": "Per-user subcollection of watched movies keyed by TMDB movieId."
+      "description": "Per-user subcollection of watched movies and TV shows keyed by movieId (for movies) or tv_{id} (for TV shows)."
     }
   }
 }

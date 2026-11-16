@@ -2,7 +2,6 @@ package com.example.ui.screens
 
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
@@ -86,6 +85,7 @@ fun MainCinemaScreen(
 
     val selectedTab by viewModel.selectedTab.collectAsStateWithLifecycle()
     val searchQuery by viewModel.searchQuery.collectAsStateWithLifecycle()
+    val discoverMediaFilter by viewModel.discoverMediaFilter.collectAsStateWithLifecycle()
     val discoverState by viewModel.discoverState.collectAsStateWithLifecycle()
     val watchedState by viewModel.watchedState.collectAsStateWithLifecycle()
     val watchedMap by viewModel.watchedMap.collectAsStateWithLifecycle()
@@ -94,7 +94,7 @@ fun MainCinemaScreen(
     val sortOption by viewModel.sortOption.collectAsStateWithLifecycle()
     val filterOption by viewModel.filterOption.collectAsStateWithLifecycle()
     val watchedSearchQuery by viewModel.watchedSearchQuery.collectAsStateWithLifecycle()
-    val pendingToggleIds by viewModel.pendingToggleIds.collectAsStateWithLifecycle()
+    val pendingToggleKeys by viewModel.pendingToggleKeys.collectAsStateWithLifecycle()
     val movieModal by viewModel.movieModal.collectAsStateWithLifecycle()
 
     val snackbarHostState = remember { SnackbarHostState() }
@@ -278,9 +278,11 @@ fun MainCinemaScreen(
                             DiscoverScreen(
                                 searchQuery = searchQuery,
                                 onSearchQueryChange = viewModel::onSearchQueryChanged,
+                                selectedMediaFilter = discoverMediaFilter,
+                                onMediaFilterSelected = viewModel::onDiscoverMediaFilterSelected,
                                 discoverState = discoverState,
                                 watchedMap = watchedMap,
-                                pendingToggleIds = pendingToggleIds,
+                                pendingToggleKeys = pendingToggleKeys,
                                 columnsCount = columnsCount,
                                 onMovieClick = viewModel::openMovieDetails,
                                 onToggleWatched = viewModel::toggleWatched,
@@ -301,7 +303,11 @@ fun MainCinemaScreen(
                                 onWatchedSearchQueryChange = viewModel::onWatchedSearchQueryChanged,
                                 onMovieClick = viewModel::openWatchedDetails,
                                 onRemoveClick = { watched ->
-                                    viewModel.removeFromWatched(watched.movieId, watched.title)
+                                    viewModel.removeFromWatched(
+                                        movieId = watched.movieId,
+                                        mediaType = watched.resolvedMediaType,
+                                        title = watched.title,
+                                    )
                                 },
                                 onExploreClick = { viewModel.selectTab(AppTab.DISCOVER) },
                             )
@@ -315,12 +321,18 @@ fun MainCinemaScreen(
     movieModal?.let { modal ->
         MovieDetailsSheet(
             modalState = modal,
-            watchedMovie = watchedMap[modal.movieId],
-            isTogglingWatched = pendingToggleIds.contains(modal.movieId),
+            watchedMovie = watchedMap[modal.uniqueKey],
+            isTogglingWatched = pendingToggleKeys.contains(modal.uniqueKey),
             onDismiss = viewModel::dismissMovieDetails,
             onToggleWatched = { viewModel.toggleWatched(modal.summary) },
-            onSaveReview = { rating, note ->
-                viewModel.saveReview(modal.movieId, rating, note)
+            onSaveReview = { rating, note, watchedSeason ->
+                viewModel.saveReview(
+                    movieId = modal.movieId,
+                    mediaType = modal.mediaType,
+                    userRating = rating,
+                    note = note,
+                    watchedSeason = watchedSeason,
+                )
             },
         )
     }

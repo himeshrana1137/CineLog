@@ -32,4 +32,31 @@ interface TmdbApiService {
         @Query("append_to_response") appendToResponse: String = "credits",
         @Query("language") language: String = "en-US",
     ): TmdbMovieDetailDto
+
+    @GET("search/tv")
+    suspend fun searchTvShows(
+        @Query("query") query: String,
+        @Query("api_key") apiKey: String? = null,
+        @Header("Authorization") bearerAuth: String? = null,
+        @Query("include_adult") includeAdult: Boolean = false,
+        @Query("language") language: String = "en-US",
+        @Query("page") page: Int = 1,
+    ): TmdbTvSearchResponse
+
+    @GET("trending/tv/week")
+    suspend fun getTrendingTvShows(
+        @Query("api_key") apiKey: String? = null,
+        @Header("Authorization") bearerAuth: String? = null,
+        @Query("language") language: String = "en-US",
+        @Query("page") page: Int = 1,
+    ): TmdbTvSearchResponse
+
+    @GET("tv/{tv_id}")
+    suspend fun getTvShowDetails(
+        @Path("tv_id") tvId: Long,
+        @Query("api_key") apiKey: String? = null,
+        @Header("Authorization") bearerAuth: String? = null,
+        @Query("append_to_response") appendToResponse: String = "credits",
+        @Query("language") language: String = "en-US",
+    ): TmdbTvDetailDto
 }

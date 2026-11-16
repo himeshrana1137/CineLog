@@ -1,6 +1,7 @@
 package com.example.data.repository
 
 import com.example.base.FirestoreEmulatorTestBase
+import com.example.data.model.MediaType
 import com.example.data.model.MovieDetails
 import com.example.data.model.MovieSummary
 import com.google.firebase.firestore.FirebaseFirestoreException
@@ -16,8 +17,9 @@ import org.junit.Test
 
 class WatchedMovieRepositoryRuleTest : FirestoreEmulatorTestBase() {
 
-    private fun sampleSummary(movieId: Long = 550L) = MovieSummary(
+    private fun sampleMovieSummary(movieId: Long = 550L) = MovieSummary(
         movieId = movieId,
+        mediaType = MediaType.MOVIE,
         title = "Fight Club",
         posterPath = "/pB8BM7pdSp6B6Ih7QZ4DrQ3PmJK.jpg",
         backdropPath = "/hZkgoQYus5vegHoetLkCJzb17zJ.jpg",
@@ -26,16 +28,29 @@ class WatchedMovieRepositoryRuleTest : FirestoreEmulatorTestBase() {
         overview = "An insomniac office worker forms an underground fight club."
     )
 
+    private fun sampleTvSummary(tvId: Long = 1396L) = MovieSummary(
+        movieId = tvId,
+        mediaType = MediaType.TV,
+        title = "Breaking Bad",
+        posterPath = "/ggFHVNu6YYI5L9pCfOacjizRGt.jpg",
+        backdropPath = null,
+        releaseDate = "2008-01-20",
+        rating = 8.9,
+        overview = "A high school chemistry teacher turned methamphetamine manufacturer."
+    )
+
     @Test
-    fun markAsWatched_andUpdateAndRemove_succeedsForAuthenticatedOwner() = runBlocking {
+    fun markAsWatched_movieAndTvShow_coexistAndUpdateCleanly() = runBlocking {
         val aliceUid = signInTestUser(ALICE_EMAIL)
         val repository = WatchedMovieRepository(firestore, auth)
 
-        val markResult = withTimeout(DEFAULT_TIMEOUT_MS) {
+        // Same numeric ID (550) for a Movie and a TV show must not collide
+        val movieResult = withTimeout(DEFAULT_TIMEOUT_MS) {
             repository.markAsWatched(
-                movie = sampleSummary(550L),
+                movie = sampleMovieSummary(550L),
                 details = MovieDetails(
                     movieId = 550L,
+                    mediaType = MediaType.MOVIE,
                     title = "Fight Club",
                     posterPath = "/pB8BM7pdSp6B6Ih7QZ4DrQ3PmJK.jpg",
                     backdropPath = null,
@@ -48,37 +63,59 @@ class WatchedMovieRepositoryRuleTest : FirestoreEmulatorTestBase() {
                 )
             )
         }
-        assertTrue("Expected markAsWatched to succeed: ${markResult.exceptionOrNull()}", markResult.isSuccess)
+        assertTrue("Expected movie markAsWatched to succeed: ${movieResult.exceptionOrNull()}", movieResult.isSuccess)
+
+        val tvResult = withTimeout(DEFAULT_TIMEOUT_MS) {
+            repository.markAsWatched(
+                movie = sampleTvSummary(550L),
+                details = MovieDetails(
+                    movieId = 550L,
+                    mediaType = MediaType.TV,
+                    title = "Breaking Bad",
+                    posterPath = "/ggFHVNu6YYI5L9pCfOacjizRGt.jpg",
+                    backdropPath = null,
+                    releaseDate = "2008-01-20",
+                    rating = 8.9,
+                    overview = "Chemistry teacher turned kingpin.",
+                    runtime = 47,
+                    genres = listOf("Drama", "Crime"),
+                    cast = emptyList(),
+                    numberOfSeasons = 5,
+                    numberOfEpisodes = 62
+                ),
+                watchedSeason = 3
+            )
+        }
+        assertTrue("Expected TV markAsWatched to succeed: ${tvResult.exceptionOrNull()}", tvResult.isSuccess)
 
         val watchedList = withTimeout(FLOW_TIMEOUT_MS) {
-            repository.observeWatchedMovies(aliceUid).first { list -> list.any { it.movieId == 550L } }
+            repository.observeWatchedMovies(aliceUid).first { list -> list.size >= 2 }
         }
-        val item = watchedList.first { it.movieId == 550L }
-        assertEquals("550", item.id)
-        assertEquals(aliceUid, item.userId)
-        assertNotNull(item.watchedAt)
+        assertTrue(watchedList.any { it.id == "550" && !it.isTv })
+        assertTrue(watchedList.any { it.id == "tv_550" && it.isTv && it.watchedSeason == 3 })
 
-        val updateResult = withTimeout(DEFAULT_TIMEOUT_MS) {
-            repository.updateRatingAndNote(550L, userRating = 5, note = "All-time classic")
+        val updateTvResult = withTimeout(DEFAULT_TIMEOUT_MS) {
+            repository.updateRatingAndNote(
+                movieId = 550L,
+                userRating = 5,
+                note = "Season 4 & 5 are peak television.",
+                mediaType = MediaType.TV,
+                watchedSeason = 5
+            )
         }
-        assertTrue("Expected updateRatingAndNote to succeed: ${updateResult.exceptionOrNull()}", updateResult.isSuccess)
+        assertTrue("Expected TV update to succeed: ${updateTvResult.exceptionOrNull()}", updateTvResult.isSuccess)
 
-        val updated = withTimeout(DEFAULT_TIMEOUT_MS) {
-            repository.getWatchedMovie(550L).getOrThrow()
+        val updatedTv = withTimeout(DEFAULT_TIMEOUT_MS) {
+            repository.getWatchedMovie(550L, MediaType.TV).getOrThrow()
         }
-        assertNotNull(updated)
-        assertEquals(5, updated!!.userRating)
-        assertEquals("All-time classic", updated.note)
+        assertNotNull(updatedTv)
+        assertEquals(5, updatedTv!!.userRating)
+        assertEquals(5, updatedTv.watchedSeason)
+        assertEquals("tv", updatedTv.mediaType)
 
-        val removeResult = withTimeout(DEFAULT_TIMEOUT_MS) {
-            repository.removeFromWatched(550L)
-        }
-        assertTrue(removeResult.isSuccess)
-
-        val afterDelete = withTimeout(DEFAULT_TIMEOUT_MS) {
-            repository.getWatchedMovie(550L).getOrThrow()
-        }
-        assertNull(afterDelete)
+        assertTrue(withTimeout(DEFAULT_TIMEOUT_MS) { repository.removeFromWatched(550L, MediaType.MOVIE) }.isSuccess)
+        assertTrue(withTimeout(DEFAULT_TIMEOUT_MS) { repository.removeFromWatched(550L, MediaType.TV) }.isSuccess)
+        assertNull(withTimeout(DEFAULT_TIMEOUT_MS) { repository.getWatchedMovie(550L, MediaType.TV).getOrThrow() })
     }
 
     @Test
@@ -106,16 +143,15 @@ class WatchedMovieRepositoryRuleTest : FirestoreEmulatorTestBase() {
         val aliceUid = signInTestUser(ALICE_EMAIL)
         val aliceRepo = WatchedMovieRepository(firestore, auth)
         withTimeout(DEFAULT_TIMEOUT_MS) {
-            aliceRepo.markAsWatched(sampleSummary(603L)).getOrThrow()
+            aliceRepo.markAsWatched(sampleTvSummary(1396L)).getOrThrow()
         }
 
-        // Switch to Bob and try to read or overwrite Alice's document directly
         signInTestUser(BOB_EMAIL)
         var readException: FirebaseFirestoreException? = null
         try {
             withTimeout(DEFAULT_TIMEOUT_MS) {
                 firestore.collection("users").document(aliceUid)
-                    .collection("watched").document("603")
+                    .collection("watched").document("tv_1396")
                     .get()
                     .await()
             }
