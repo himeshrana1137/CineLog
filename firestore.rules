@@ -1,0 +1,81 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Global safety net: deny all by default
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isValidWatchedMovie(data, userId) {
+      return data.userId is string &&
+             data.userId == userId &&
+             data.movieId is int &&
+             data.movieId > 0 &&
+             data.title is string &&
+             data.title.size() >= 1 &&
+             data.title.size() <= 300 &&
+             data.rating is number &&
+             data.rating >= 0 &&
+             data.rating <= 10 &&
+             (!('posterPath' in data) || data.posterPath == null || (data.posterPath is string && data.posterPath.size() <= 500)) &&
+             (!('releaseDate' in data) || data.releaseDate == null || (data.releaseDate is string && data.releaseDate.size() <= 32)) &&
+             (!('userRating' in data) || (data.userRating is int && data.userRating >= 0 && data.userRating <= 5)) &&
+             (!('note' in data) || data.note == null || (data.note is string && data.note.size() <= 1000)) &&
+             (!('overview' in data) || data.overview == null || (data.overview is string && data.overview.size() <= 4000)) &&
+             (!('genres' in data) || (data.genres is list && data.genres.size() <= 10 && (data.genres.size() == 0 || data.genres[0] is string))) &&
+             (!('runtime' in data) || (data.runtime is int && data.runtime >= 0 && data.runtime <= 2000)) &&
+             data.watchedAt is timestamp &&
+             data.watchedAt <= request.time &&
+             data.updatedAt is timestamp &&
+             data.updatedAt <= request.time;
+    }
+
+    match /users/{userId}/watched/{movieId} {
+      allow get: if isOwner(userId) && isValidId(movieId);
+      allow list: if isOwner(userId);
+
+      allow create: if isOwner(userId) &&
+                       isValidId(movieId) &&
+                       incoming().keys().hasAll(['userId', 'movieId', 'title', 'rating', 'watchedAt', 'updatedAt']) &&
+                       incoming().keys().hasOnly([
+                         'userId', 'movieId', 'title', 'posterPath', 'releaseDate',
+                         'rating', 'userRating', 'note', 'overview', 'genres',
+                         'runtime', 'watchedAt', 'updatedAt'
+                       ]) &&
+                       isValidWatchedMovie(incoming(), userId);
+
+      allow update: if isOwner(userId) &&
+                       isValidId(movieId) &&
+                       isValidWatchedMovie(incoming(), userId) &&
+                       incoming().userId == existing().userId &&
+                       incoming().movieId == existing().movieId &&
+                       incoming().watchedAt == existing().watchedAt &&
+                       incoming().diff(existing()).affectedKeys().hasOnly([
+                         'userRating', 'note', 'title', 'posterPath', 'releaseDate',
+                         'rating', 'overview', 'genres', 'runtime', 'updatedAt'
+                       ]);
+
+      allow delete: if isOwner(userId) && isValidId(movieId);
+    }
+  }
+}

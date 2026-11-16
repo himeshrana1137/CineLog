@@ -1,0 +1,81 @@
+{
+  "entities": {
+    "WatchedMovie": {
+      "title": "WatchedMovie",
+      "description": "A movie marked as watched by an authenticated user, including TMDB metadata, watch timestamp, and personal rating/note.",
+      "type": "object",
+      "properties": {
+        "userId": {
+          "type": "string",
+          "description": "UID of the authenticated user who owns this watched entry."
+        },
+        "movieId": {
+          "type": "integer",
+          "description": "TMDB numeric movie ID."
+        },
+        "title": {
+          "type": "string",
+          "description": "Movie title."
+        },
+        "posterPath": {
+          "type": "string",
+          "description": "TMDB relative poster image path (e.g. /abc123.jpg)."
+        },
+        "releaseDate": {
+          "type": "string",
+          "description": "Movie release date in YYYY-MM-DD format."
+        },
+        "rating": {
+          "type": "number",
+          "description": "TMDB community vote average (0.0 to 10.0)."
+        },
+        "userRating": {
+          "type": "integer",
+          "description": "User's personal 1-5 star rating (0 when unrated)."
+        },
+        "note": {
+          "type": "string",
+          "description": "User's personal watch note or short review."
+        },
+        "overview": {
+          "type": "string",
+          "description": "Movie synopsis from TMDB."
+        },
+        "genres": {
+          "type": "array",
+          "description": "List of up to 10 genre names."
+        },
+        "runtime": {
+          "type": "integer",
+          "description": "Movie runtime in minutes."
+        },
+        "watchedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when the movie was marked as watched (FieldValue.serverTimestamp())."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp of the latest rating or note update (FieldValue.serverTimestamp())."
+        }
+      },
+      "required": [
+        "userId",
+        "movieId",
+        "title",
+        "rating",
+        "watchedAt",
+        "updatedAt"
+      ]
+    }
+  },
+  "firestore": {
+    "/users/{userId}/watched/{movieId}": {
+      "schema": {
+        "$ref": "#/entities/WatchedMovie"
+      },
+      "description": "Per-user subcollection of watched movies keyed by TMDB movieId."
+    }
+  }
+}
