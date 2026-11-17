@@ -13,16 +13,20 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.TrendingUp
+import androidx.compose.material.icons.rounded.AutoAwesome
+import androidx.compose.material.icons.rounded.Casino
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Key
 import androidx.compose.material.icons.rounded.LiveTv
@@ -50,12 +54,17 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import com.example.R
+import com.example.data.model.LanguageChipCount
 import com.example.data.model.MovieSummary
+import com.example.data.model.WatchProvidersRegion
 import com.example.data.model.WatchedMovie
+import com.example.data.model.WatchlistItem
 import com.example.ui.DiscoverMediaFilter
 import com.example.ui.DiscoverUiState
+import com.example.ui.RecommendationsUiState
 import com.example.ui.components.CineEmptyState
 import com.example.ui.components.DiscoverMovieCard
+import com.example.ui.components.LanguageFilterRow
 import com.example.ui.components.MovieSkeletonCard
 import com.example.ui.theme.CineElevated
 import com.example.ui.theme.CineGold
@@ -66,19 +75,32 @@ fun DiscoverScreen(
     onSearchQueryChange: (String) -> Unit,
     selectedMediaFilter: DiscoverMediaFilter,
     onMediaFilterSelected: (DiscoverMediaFilter) -> Unit,
+    languageChips: List<LanguageChipCount>,
+    selectedLanguage: String,
+    onLanguageSelected: (String) -> Unit,
     discoverState: DiscoverUiState,
+    filteredMovies: List<MovieSummary>,
+    forYouState: RecommendationsUiState,
+    watchlistCount: Int,
     watchedMap: Map<String, WatchedMovie>,
+    watchlistMap: Map<String, WatchlistItem>,
+    watchProvidersCache: Map<String, WatchProvidersRegion>,
     pendingToggleKeys: Set<String>,
+    pendingWatchlistKeys: Set<String>,
     columnsCount: Int,
     onMovieClick: (MovieSummary) -> Unit,
     onToggleWatched: (MovieSummary) -> Unit,
+    onToggleWatchlist: (MovieSummary) -> Unit,
+    onAddToList: (MovieSummary) -> Unit,
+    onOpenSurpriseMe: () -> Unit,
+    onRefreshRecommendations: () -> Unit,
     onRetry: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val focusManager = LocalFocusManager.current
 
     Column(modifier = modifier.fillMaxSize()) {
-        // Persistent Search Bar for Movies & TV Shows
+        // Search Bar for Movies & TV Shows
         OutlinedTextField(
             value = searchQuery,
             onValueChange = onSearchQueryChange,
@@ -135,7 +157,7 @@ fun DiscoverScreen(
             modifier = Modifier
                 .fillMaxWidth()
                 .horizontalScroll(rememberScrollState())
-                .padding(horizontal = 16.dp, vertical = 4.dp),
+                .padding(horizontal = 16.dp, vertical = 2.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
@@ -169,6 +191,18 @@ fun DiscoverScreen(
                     modifier = Modifier.testTag("discover_filter_${filter.name.lowercase()}"),
                 )
             }
+        }
+
+        // Dynamic Language Filter Chips built from Discover results
+        if (discoverState is DiscoverUiState.Success && languageChips.isNotEmpty()) {
+            LanguageFilterRow(
+                chips = languageChips,
+                totalCount = discoverState.movies.size,
+                selectedLanguage = selectedLanguage,
+                onLanguageSelected = onLanguageSelected,
+                testTagPrefix = "discover",
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp),
+            )
         }
 
         when (discoverState) {
@@ -266,12 +300,16 @@ fun DiscoverScreen(
             }
 
             is DiscoverUiState.Success -> {
-                if (discoverState.movies.isEmpty()) {
+                if (filteredMovies.isEmpty()) {
                     CineEmptyState(
                         title = stringResource(R.string.empty_search_title),
                         subtitle = stringResource(R.string.empty_search_subtitle),
-                        actionLabel = if (searchQuery.isNotEmpty()) stringResource(R.string.clear_search) else null,
-                        onActionClick = if (searchQuery.isNotEmpty()) ({ onSearchQueryChange("") }) else null,
+                        actionLabel = if (selectedLanguage != "all") "Show All Languages"
+                        else if (searchQuery.isNotEmpty()) stringResource(R.string.clear_search) else null,
+                        onActionClick = {
+                            if (selectedLanguage != "all") onLanguageSelected("all")
+                            else if (searchQuery.isNotEmpty()) onSearchQueryChange("")
+                        },
                         modifier = Modifier.fillMaxSize(),
                     )
                 } else {
@@ -292,6 +330,143 @@ fun DiscoverScreen(
                         verticalArrangement = Arrangement.spacedBy(12.dp),
                         modifier = Modifier.fillMaxSize(),
                     ) {
+                        // What to Watch Today? "Surprise Me" banner
+                        if (!discoverState.isSearchResult) {
+                            item(span = { GridItemSpan(maxLineSpan) }) {
+                                Surface(
+                                    color = MaterialTheme.colorScheme.surface,
+                                    shape = MaterialTheme.shapes.medium,
+                                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.45f)),
+                                    modifier = Modifier.fillMaxWidth(),
+                                ) {
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(horizontal = 14.dp, vertical = 12.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                    ) {
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            Text(
+                                                text = "WHAT TO WATCH TODAY?",
+                                                style = MaterialTheme.typography.labelMedium,
+                                                color = MaterialTheme.colorScheme.primary,
+                                            )
+                                            Text(
+                                                text = if (watchlistCount > 0) {
+                                                    "Pick randomly from $watchlistCount saved Watchlist titles"
+                                                } else {
+                                                    "Add titles to Watchlist to unlock Surprise Me"
+                                                },
+                                                style = MaterialTheme.typography.bodyMedium,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            )
+                                        }
+                                        Spacer(modifier = Modifier.width(10.dp))
+                                        Button(
+                                            onClick = onOpenSurpriseMe,
+                                            shape = RoundedCornerShape(10.dp),
+                                            contentPadding = PaddingValues(horizontal = 14.dp),
+                                            modifier = Modifier
+                                                .height(48.dp)
+                                                .testTag("discover_surprise_me_button"),
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Rounded.Casino,
+                                                contentDescription = null,
+                                                modifier = Modifier.size(18.dp),
+                                            )
+                                            Spacer(modifier = Modifier.width(6.dp))
+                                            Text("Surprise Me")
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        // "For You" personalized recommendations from 4-5 star watched items
+                        if (!discoverState.isSearchResult && forYouState is RecommendationsUiState.Success && forYouState.items.isNotEmpty()) {
+                            item(span = { GridItemSpan(maxLineSpan) }) {
+                                Column(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(vertical = 4.dp)
+                                        .testTag("for_you_recommendations_section"),
+                                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                                ) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                    ) {
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                            modifier = Modifier.weight(1f),
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Rounded.AutoAwesome,
+                                                contentDescription = null,
+                                                tint = CineGold,
+                                                modifier = Modifier.size(18.dp),
+                                            )
+                                            Column {
+                                                Text(
+                                                    text = "FOR YOU",
+                                                    style = MaterialTheme.typography.headlineLarge,
+                                                    color = MaterialTheme.colorScheme.onBackground,
+                                                )
+                                                if (forYouState.seedTitles.isNotEmpty()) {
+                                                    Text(
+                                                        text = "Because you loved ${forYouState.seedTitles.take(2).joinToString(" & ")}",
+                                                        style = MaterialTheme.typography.labelMedium,
+                                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                    )
+                                                }
+                                            }
+                                        }
+                                        IconButton(
+                                            onClick = onRefreshRecommendations,
+                                            modifier = Modifier.minimumInteractiveComponentSize(),
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Rounded.Refresh,
+                                                contentDescription = "Refresh recommendations",
+                                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            )
+                                        }
+                                    }
+
+                                    LazyRow(
+                                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                        contentPadding = PaddingValues(end = 8.dp),
+                                    ) {
+                                        items(
+                                            items = forYouState.items,
+                                            key = { "rec_${it.uniqueKey}" },
+                                        ) { rec ->
+                                            val watchedEntry = watchedMap[rec.uniqueKey]
+                                            val inWatchlist = watchlistMap.containsKey(rec.uniqueKey)
+                                            DiscoverMovieCard(
+                                                movie = rec,
+                                                isWatched = watchedEntry != null,
+                                                isInWatchlist = inWatchlist,
+                                                isToggling = pendingToggleKeys.contains(rec.uniqueKey),
+                                                isWatchlistToggling = pendingWatchlistKeys.contains(rec.uniqueKey),
+                                                userRating = watchedEntry?.userRating ?: 0,
+                                                providers = watchProvidersCache[rec.uniqueKey],
+                                                onCardClick = { onMovieClick(rec) },
+                                                onToggleWatched = { onToggleWatched(rec) },
+                                                onToggleWatchlist = { onToggleWatchlist(rec) },
+                                                onAddToList = { onAddToList(rec) },
+                                                modifier = Modifier.width(172.dp),
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
                         item(span = { GridItemSpan(maxLineSpan) }) {
                             Row(
                                 modifier = Modifier
@@ -315,17 +490,23 @@ fun DiscoverScreen(
                         }
 
                         items(
-                            items = discoverState.movies,
+                            items = filteredMovies,
                             key = { it.uniqueKey },
                         ) { movie ->
                             val watchedEntry = watchedMap[movie.uniqueKey]
+                            val inWatchlist = watchlistMap.containsKey(movie.uniqueKey)
                             DiscoverMovieCard(
                                 movie = movie,
                                 isWatched = watchedEntry != null,
+                                isInWatchlist = inWatchlist,
                                 isToggling = pendingToggleKeys.contains(movie.uniqueKey),
+                                isWatchlistToggling = pendingWatchlistKeys.contains(movie.uniqueKey),
                                 userRating = watchedEntry?.userRating ?: 0,
+                                providers = watchProvidersCache[movie.uniqueKey],
                                 onCardClick = { onMovieClick(movie) },
                                 onToggleWatched = { onToggleWatched(movie) },
+                                onToggleWatchlist = { onToggleWatchlist(movie) },
+                                onAddToList = { onAddToList(movie) },
                             )
                         }
                     }

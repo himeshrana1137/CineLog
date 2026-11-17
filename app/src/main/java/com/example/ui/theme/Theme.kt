@@ -5,12 +5,14 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Shapes
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.unit.dp
 
-private val CineDarkColorScheme = darkColorScheme(
-    primary = CineCrimson,
-    onPrimary = CineInk,
-    primaryContainer = CineCrimsonContainer,
+fun buildCineDarkColorScheme(accentColor: Color = CineCrimson) = darkColorScheme(
+    primary = accentColor,
+    onPrimary = if (accentColor.luminance() > 0.5f) CineObsidian else CineInk,
+    primaryContainer = accentColor.copy(alpha = 0.22f),
     onPrimaryContainer = CineInk,
     secondary = CineGold,
     onSecondary = CineObsidian,
@@ -45,12 +47,22 @@ private val CineShapes = Shapes(
     extraLarge = RoundedCornerShape(28.dp),
 )
 
+fun parseHexColorOrDefault(hex: String, fallback: Color = CineCrimson): Color {
+    return try {
+        val cleaned = hex.trim().let { if (it.startsWith("#")) it else "#$it" }
+        Color(android.graphics.Color.parseColor(cleaned))
+    } catch (_: Exception) {
+        fallback
+    }
+}
+
 @Composable
 fun CineLogTheme(
+    accentColor: Color = CineCrimson,
     content: @Composable () -> Unit,
 ) {
     MaterialTheme(
-        colorScheme = CineDarkColorScheme,
+        colorScheme = buildCineDarkColorScheme(accentColor),
         typography = CineTypography,
         shapes = CineShapes,
         content = content,

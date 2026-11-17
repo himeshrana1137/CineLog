@@ -42,14 +42,75 @@ service cloud.firestore {
              (!('releaseDate' in data) || data.releaseDate == null || (data.releaseDate is string && data.releaseDate.size() <= 32)) &&
              (!('userRating' in data) || (data.userRating is int && data.userRating >= 0 && data.userRating <= 5)) &&
              (!('note' in data) || data.note == null || (data.note is string && data.note.size() <= 1000)) &&
+             (!('reaction' in data) || data.reaction in ['', 'mind_blown', 'emotional', 'masterpiece', 'hilarious', 'boring']) &&
+             (!('originalLanguage' in data) || (data.originalLanguage is string && data.originalLanguage.size() <= 16)) &&
              (!('overview' in data) || data.overview == null || (data.overview is string && data.overview.size() <= 4000)) &&
+             (!('genres' in data) || (data.genres is list && data.genres.size() <= 10 && (data.genres.size() == 0 || data.genres[0] is string))) &&
+             (!('cast' in data) || (data.cast is list && data.cast.size() <= 15 && (data.cast.size() == 0 || data.cast[0] is string))) &&
+             (!('directors' in data) || (data.directors is list && data.directors.size() <= 10 && (data.directors.size() == 0 || data.directors[0] is string))) &&
+             (!('runtime' in data) || (data.runtime is int && data.runtime >= 0 && data.runtime <= 2000)) &&
+             (!('numberOfSeasons' in data) || (data.numberOfSeasons is int && data.numberOfSeasons >= 0 && data.numberOfSeasons <= 200)) &&
+             (!('numberOfEpisodes' in data) || (data.numberOfEpisodes is int && data.numberOfEpisodes >= 0 && data.numberOfEpisodes <= 50000)) &&
+              (!('watchedSeason' in data) || (data.watchedSeason is int && data.watchedSeason >= 0 && data.watchedSeason <= 200)) &&
+              (!('watchLog' in data) || (data.watchLog is list && data.watchLog.size() <= 500 && (data.watchLog.size() == 0 || data.watchLog[0] is string))) &&
+              data.watchedAt is timestamp &&
+              data.watchedAt <= request.time &&
+              data.updatedAt is timestamp &&
+              data.updatedAt <= request.time;
+    }
+
+    function isValidWatchlistItem(data, userId) {
+      return data.userId is string &&
+             data.userId == userId &&
+             data.movieId is int &&
+             data.movieId > 0 &&
+             data.mediaType in ['movie', 'tv'] &&
+             data.title is string &&
+             data.title.size() >= 1 &&
+             data.title.size() <= 300 &&
+             data.rating is number &&
+             data.rating >= 0 &&
+             data.rating <= 10 &&
+             (!('posterPath' in data) || data.posterPath == null || (data.posterPath is string && data.posterPath.size() <= 500)) &&
+             (!('releaseDate' in data) || data.releaseDate == null || (data.releaseDate is string && data.releaseDate.size() <= 32)) &&
+             (!('overview' in data) || data.overview == null || (data.overview is string && data.overview.size() <= 4000)) &&
+             (!('originalLanguage' in data) || (data.originalLanguage is string && data.originalLanguage.size() <= 16)) &&
              (!('genres' in data) || (data.genres is list && data.genres.size() <= 10 && (data.genres.size() == 0 || data.genres[0] is string))) &&
              (!('runtime' in data) || (data.runtime is int && data.runtime >= 0 && data.runtime <= 2000)) &&
              (!('numberOfSeasons' in data) || (data.numberOfSeasons is int && data.numberOfSeasons >= 0 && data.numberOfSeasons <= 200)) &&
              (!('numberOfEpisodes' in data) || (data.numberOfEpisodes is int && data.numberOfEpisodes >= 0 && data.numberOfEpisodes <= 50000)) &&
-             (!('watchedSeason' in data) || (data.watchedSeason is int && data.watchedSeason >= 0 && data.watchedSeason <= 200)) &&
-             data.watchedAt is timestamp &&
-             data.watchedAt <= request.time &&
+             data.addedAt is timestamp &&
+             data.addedAt <= request.time &&
+             data.updatedAt is timestamp &&
+             data.updatedAt <= request.time;
+    }
+
+    function isValidCustomList(data, userId) {
+      return data.userId is string &&
+             data.userId == userId &&
+             data.name is string &&
+             data.name.size() >= 1 &&
+             data.name.size() <= 120 &&
+             (!('description' in data) || (data.description is string && data.description.size() <= 500)) &&
+             data.items is list &&
+             data.items.size() <= 300 &&
+             (data.items.size() == 0 || (
+               data.items[0] is map &&
+               data.items[0].movieId is int &&
+               data.items[0].title is string
+             )) &&
+             data.createdAt is timestamp &&
+             data.createdAt <= request.time &&
+             data.updatedAt is timestamp &&
+             data.updatedAt <= request.time;
+    }
+
+    function isValidUserSettings(data, userId) {
+      return data.userId is string &&
+             data.userId == userId &&
+             data.accentPreset in ['red', 'yellow', 'blue', 'purple', 'neon_green', 'custom'] &&
+             data.accentHex is string &&
+             data.accentHex.matches('^#[0-9A-Fa-f]{6}$') &&
              data.updatedAt is timestamp &&
              data.updatedAt <= request.time;
     }
@@ -63,9 +124,10 @@ service cloud.firestore {
                        incoming().keys().hasAll(['userId', 'movieId', 'mediaType', 'title', 'rating', 'watchedAt', 'updatedAt']) &&
                        incoming().keys().hasOnly([
                          'userId', 'movieId', 'mediaType', 'title', 'posterPath', 'releaseDate',
-                         'rating', 'userRating', 'note', 'overview', 'genres',
+                         'rating', 'userRating', 'note', 'reaction', 'originalLanguage',
+                         'overview', 'genres', 'cast', 'directors',
                          'runtime', 'numberOfSeasons', 'numberOfEpisodes', 'watchedSeason',
-                         'watchedAt', 'updatedAt'
+                         'watchLog', 'watchedAt', 'updatedAt'
                        ]) &&
                        isValidWatchedMedia(incoming(), userId);
 
@@ -77,12 +139,84 @@ service cloud.firestore {
                        (!('mediaType' in existing()) || incoming().mediaType == existing().mediaType) &&
                        incoming().watchedAt == existing().watchedAt &&
                        incoming().diff(existing()).affectedKeys().hasOnly([
-                         'userRating', 'note', 'title', 'posterPath', 'releaseDate',
-                         'rating', 'overview', 'genres', 'runtime',
-                         'numberOfSeasons', 'numberOfEpisodes', 'watchedSeason', 'updatedAt'
+                         'userRating', 'note', 'reaction', 'originalLanguage',
+                         'title', 'posterPath', 'releaseDate',
+                         'rating', 'overview', 'genres', 'cast', 'directors', 'runtime',
+                         'numberOfSeasons', 'numberOfEpisodes', 'watchedSeason', 'watchLog', 'updatedAt'
                        ]);
 
       allow delete: if isOwner(userId) && isValidId(watchedId);
+    }
+
+    match /users/{userId}/watchlist/{watchlistId} {
+      allow get: if isOwner(userId) && isValidId(watchlistId);
+      allow list: if isOwner(userId);
+
+      allow create: if isOwner(userId) &&
+                       isValidId(watchlistId) &&
+                       incoming().keys().hasAll(['userId', 'movieId', 'mediaType', 'title', 'rating', 'addedAt', 'updatedAt']) &&
+                       incoming().keys().hasOnly([
+                         'userId', 'movieId', 'mediaType', 'title', 'posterPath', 'releaseDate',
+                         'rating', 'overview', 'originalLanguage', 'genres',
+                         'runtime', 'numberOfSeasons', 'numberOfEpisodes',
+                         'addedAt', 'updatedAt'
+                       ]) &&
+                       isValidWatchlistItem(incoming(), userId);
+
+      allow update: if isOwner(userId) &&
+                       isValidId(watchlistId) &&
+                       isValidWatchlistItem(incoming(), userId) &&
+                       incoming().userId == existing().userId &&
+                       incoming().movieId == existing().movieId &&
+                       incoming().mediaType == existing().mediaType &&
+                       incoming().addedAt == existing().addedAt &&
+                       incoming().diff(existing()).affectedKeys().hasOnly([
+                         'title', 'posterPath', 'releaseDate', 'rating',
+                         'overview', 'originalLanguage', 'genres', 'runtime',
+                         'numberOfSeasons', 'numberOfEpisodes', 'updatedAt'
+                       ]);
+
+      allow delete: if isOwner(userId) && isValidId(watchlistId);
+    }
+
+    match /users/{userId}/lists/{listId} {
+      allow get: if isOwner(userId) && isValidId(listId);
+      allow list: if isOwner(userId);
+
+      allow create: if isOwner(userId) &&
+                       isValidId(listId) &&
+                       incoming().keys().hasAll(['userId', 'name', 'items', 'createdAt', 'updatedAt']) &&
+                       incoming().keys().hasOnly(['userId', 'name', 'description', 'items', 'createdAt', 'updatedAt']) &&
+                       isValidCustomList(incoming(), userId);
+
+      allow update: if isOwner(userId) &&
+                       isValidId(listId) &&
+                       isValidCustomList(incoming(), userId) &&
+                       incoming().userId == existing().userId &&
+                       incoming().createdAt == existing().createdAt &&
+                       incoming().diff(existing()).affectedKeys().hasOnly(['name', 'description', 'items', 'updatedAt']);
+
+      allow delete: if isOwner(userId) && isValidId(listId);
+    }
+
+    match /users/{userId}/settings/{settingId} {
+      allow get: if isOwner(userId) && settingId == 'preferences';
+      allow list: if isOwner(userId);
+
+      allow create: if isOwner(userId) &&
+                       settingId == 'preferences' &&
+                       incoming().keys().hasAll(['userId', 'accentPreset', 'accentHex', 'updatedAt']) &&
+                       incoming().keys().hasOnly(['userId', 'accentPreset', 'accentHex', 'updatedAt']) &&
+                       isValidUserSettings(incoming(), userId);
+
+      allow update: if isOwner(userId) &&
+                       settingId == 'preferences' &&
+                       incoming().keys().hasAll(['userId', 'accentPreset', 'accentHex', 'updatedAt']) &&
+                       incoming().keys().hasOnly(['userId', 'accentPreset', 'accentHex', 'updatedAt']) &&
+                       isValidUserSettings(incoming(), userId) &&
+                       incoming().userId == existing().userId;
+
+      allow delete: if isOwner(userId) && settingId == 'preferences';
     }
   }
 }

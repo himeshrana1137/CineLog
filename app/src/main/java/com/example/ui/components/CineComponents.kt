@@ -1,18 +1,24 @@
 package com.example.ui.components
 
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -25,18 +31,28 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.Logout
+import androidx.compose.material.icons.automirrored.rounded.PlaylistAdd
 import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.rounded.Bookmark
+import androidx.compose.material.icons.rounded.BookmarkBorder
 import androidx.compose.material.icons.rounded.Check
+import androidx.compose.material.icons.rounded.CloudOff
+import androidx.compose.material.icons.rounded.ExpandLess
+import androidx.compose.material.icons.rounded.ExpandMore
+import androidx.compose.material.icons.rounded.Language
 import androidx.compose.material.icons.rounded.Movie
 import androidx.compose.material.icons.rounded.Star
 import androidx.compose.material.icons.rounded.StarBorder
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -45,6 +61,9 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -62,7 +81,9 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import com.example.R
+import com.example.data.model.LanguageChipCount
 import com.example.data.model.MovieSummary
+import com.example.data.model.WatchProvidersRegion
 import com.example.ui.theme.CineElevated
 import com.example.ui.theme.CineEmerald
 import com.example.ui.theme.CineEmeraldContainer
@@ -70,6 +91,47 @@ import com.example.ui.theme.CineGold
 import com.example.ui.theme.CineObsidian
 import com.example.ui.theme.CineSurfaceHigh
 import java.util.Locale
+
+@Composable
+fun OfflineModeBanner(
+    isOffline: Boolean,
+    modifier: Modifier = Modifier,
+) {
+    AnimatedVisibility(
+        visible = isOffline,
+        enter = expandVertically(),
+        exit = shrinkVertically(),
+        modifier = modifier,
+    ) {
+        Surface(
+            color = CineGold.copy(alpha = 0.16f),
+            border = BorderStroke(1.dp, CineGold.copy(alpha = 0.45f)),
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 8.dp)
+                    .testTag("offline_mode_banner"),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Icon(
+                    imageVector = Icons.Rounded.CloudOff,
+                    contentDescription = null,
+                    tint = CineGold,
+                    modifier = Modifier.size(16.dp),
+                )
+                Text(
+                    text = stringResource(R.string.offline_banner_text),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = CineGold,
+                    fontWeight = FontWeight.SemiBold,
+                )
+            }
+        }
+    }
+}
 
 @Composable
 fun CineTopNavbar(
@@ -92,7 +154,6 @@ fun CineTopNavbar(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween,
         ) {
-            // Left: CineLog wordmark + total watched badge
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
@@ -133,7 +194,6 @@ fun CineTopNavbar(
                 }
             }
 
-            // Right: Profile photo, user name, Logout button
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
@@ -170,7 +230,7 @@ fun CineTopNavbar(
                     color = MaterialTheme.colorScheme.onSurface,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.widthIn(max = 110.dp),
+                    modifier = Modifier.widthIn(max = 100.dp),
                 )
 
                 IconButton(
@@ -190,14 +250,122 @@ fun CineTopNavbar(
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+fun LanguageFilterRow(
+    chips: List<LanguageChipCount>,
+    totalCount: Int,
+    selectedLanguage: String,
+    onLanguageSelected: (String) -> Unit,
+    testTagPrefix: String,
+    modifier: Modifier = Modifier,
+) {
+    if (chips.isEmpty()) return
+
+    val primaryChips = chips.filter { it.isPrimary }
+    val extraChips = chips.filter { !it.isPrimary }
+    val initialVisible = if (primaryChips.isNotEmpty()) primaryChips else chips.take(5)
+    val overflowChips = if (primaryChips.isNotEmpty()) extraChips else chips.drop(5)
+    var showMore by remember { mutableStateOf(false) }
+
+    Column(modifier = modifier.fillMaxWidth()) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(
+                imageVector = Icons.Rounded.Language,
+                contentDescription = "Language filters",
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(16.dp),
+            )
+            FilterChip(
+                selected = selectedLanguage == "all",
+                onClick = { onLanguageSelected("all") },
+                label = { Text("All ($totalCount)") },
+                colors = FilterChipDefaults.filterChipColors(
+                    selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
+                    selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                ),
+                modifier = Modifier.testTag("${testTagPrefix}_lang_all"),
+            )
+            initialVisible.forEach { item ->
+                FilterChip(
+                    selected = selectedLanguage.equals(item.code, ignoreCase = true),
+                    onClick = {
+                        onLanguageSelected(
+                            if (selectedLanguage.equals(item.code, ignoreCase = true)) "all" else item.code
+                        )
+                    },
+                    label = { Text("${item.label} (${item.count})") },
+                    colors = FilterChipDefaults.filterChipColors(
+                        selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
+                        selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                    ),
+                    modifier = Modifier.testTag("${testTagPrefix}_lang_${item.code}"),
+                )
+            }
+            if (overflowChips.isNotEmpty()) {
+                FilterChip(
+                    selected = overflowChips.any { it.code.equals(selectedLanguage, ignoreCase = true) },
+                    onClick = { showMore = !showMore },
+                    label = { Text(if (showMore) "Less" else "More (+${overflowChips.size})") },
+                    trailingIcon = {
+                        Icon(
+                            imageVector = if (showMore) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore,
+                            contentDescription = null,
+                            modifier = Modifier.size(16.dp),
+                        )
+                    },
+                    modifier = Modifier.testTag("${testTagPrefix}_lang_more"),
+                )
+            }
+        }
+
+        AnimatedVisibility(visible = showMore && overflowChips.isNotEmpty()) {
+            FlowRow(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 6.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                overflowChips.forEach { item ->
+                    FilterChip(
+                        selected = selectedLanguage.equals(item.code, ignoreCase = true),
+                        onClick = {
+                            onLanguageSelected(
+                                if (selectedLanguage.equals(item.code, ignoreCase = true)) "all" else item.code
+                            )
+                        },
+                        label = { Text("${item.label} (${item.count})") },
+                        colors = FilterChipDefaults.filterChipColors(
+                            selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
+                            selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                        ),
+                    )
+                }
+            }
+        }
+    }
+}
+
 @Composable
 fun DiscoverMovieCard(
     movie: MovieSummary,
     isWatched: Boolean,
+    isInWatchlist: Boolean,
     isToggling: Boolean,
+    isWatchlistToggling: Boolean,
     userRating: Int,
+    providers: WatchProvidersRegion?,
     onCardClick: () -> Unit,
     onToggleWatched: () -> Unit,
+    onToggleWatchlist: () -> Unit,
+    onAddToList: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
     Surface(
@@ -211,10 +379,9 @@ fun DiscoverMovieCard(
             .fillMaxWidth()
             .clip(MaterialTheme.shapes.medium)
             .clickable(onClick = onCardClick)
-            .testTag("discover_movie_card_${movie.movieId}"),
+            .testTag("discover_movie_card_${movie.uniqueKey}"),
     ) {
         Column {
-            // Poster container with rating + watched overlay
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -255,15 +422,14 @@ fun DiscoverMovieCard(
                     }
                 }
 
-                // Bottom gradient scrim for legibility
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(64.dp)
+                        .height(74.dp)
                         .align(Alignment.BottomCenter)
                         .background(
                             Brush.verticalGradient(
-                                colors = listOf(Color.Transparent, CineObsidian.copy(alpha = 0.85f))
+                                colors = listOf(Color.Transparent, CineObsidian.copy(alpha = 0.9f))
                             )
                         )
                 )
@@ -330,11 +496,56 @@ fun DiscoverMovieCard(
                         )
                     }
                 }
+
+                // Bottom-left language badge
+                val langBadge = movie.languageName
+                if (langBadge.isNotBlank()) {
+                    Surface(
+                        color = CineObsidian.copy(alpha = 0.82f),
+                        shape = RoundedCornerShape(6.dp),
+                        modifier = Modifier
+                            .align(Alignment.BottomStart)
+                            .padding(8.dp),
+                    ) {
+                        Text(
+                            text = langBadge,
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurface,
+                            maxLines = 1,
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                        )
+                    }
+                }
+
+                // Bottom-right OTT provider mini logos (India)
+                val badgeProviders = providers?.badgeProviders.orEmpty()
+                if (badgeProviders.isNotEmpty()) {
+                    Row(
+                        modifier = Modifier
+                            .align(Alignment.BottomEnd)
+                            .padding(8.dp),
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    ) {
+                        badgeProviders.forEach { provider ->
+                            val logoUrl = provider.fullLogoUrl()
+                            if (logoUrl != null) {
+                                AsyncImage(
+                                    model = logoUrl,
+                                    contentDescription = provider.providerName,
+                                    contentScale = ContentScale.Crop,
+                                    modifier = Modifier
+                                        .size(22.dp)
+                                        .clip(RoundedCornerShape(5.dp))
+                                        .background(CineObsidian),
+                                )
+                            }
+                        }
+                    }
+                }
             }
 
-            // Metadata + Toggle button
             Column(
-                modifier = Modifier.padding(12.dp),
+                modifier = Modifier.padding(10.dp),
                 verticalArrangement = Arrangement.spacedBy(6.dp),
             ) {
                 Text(
@@ -350,43 +561,104 @@ fun DiscoverMovieCard(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
 
-                Button(
-                    onClick = onToggleWatched,
-                    enabled = !isToggling,
-                    shape = RoundedCornerShape(10.dp),
-                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = if (isWatched) CineEmeraldContainer else MaterialTheme.colorScheme.primary,
-                        contentColor = if (isWatched) CineEmerald else MaterialTheme.colorScheme.onPrimary,
-                    ),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(48.dp)
-                        .testTag("toggle_watched_button_${movie.movieId}"),
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    if (isToggling) {
-                        CircularProgressIndicator(
-                            modifier = Modifier.size(16.dp),
-                            strokeWidth = 2.dp,
-                            color = if (isWatched) CineEmerald else MaterialTheme.colorScheme.onPrimary,
-                        )
-                    } else {
-                        Icon(
-                            imageVector = if (isWatched) Icons.Rounded.Check else Icons.Rounded.Add,
-                            contentDescription = null,
-                            modifier = Modifier.size(16.dp),
-                        )
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text(
-                            text = if (isWatched) {
-                                stringResource(R.string.watched_badge)
+                    Button(
+                        onClick = onToggleWatched,
+                        enabled = !isToggling,
+                        shape = RoundedCornerShape(10.dp),
+                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = if (isWatched) CineEmeraldContainer else MaterialTheme.colorScheme.primary,
+                            contentColor = if (isWatched) CineEmerald else MaterialTheme.colorScheme.onPrimary,
+                        ),
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(48.dp)
+                            .testTag("toggle_watched_button_${movie.uniqueKey}"),
+                    ) {
+                        if (isToggling) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(16.dp),
+                                strokeWidth = 2.dp,
+                                color = if (isWatched) CineEmerald else MaterialTheme.colorScheme.onPrimary,
+                            )
+                        } else {
+                            Icon(
+                                imageVector = if (isWatched) Icons.Rounded.Check else Icons.Rounded.Add,
+                                contentDescription = null,
+                                modifier = Modifier.size(15.dp),
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(
+                                text = if (isWatched) {
+                                    stringResource(R.string.watched_badge)
+                                } else {
+                                    "Watched"
+                                },
+                                style = MaterialTheme.typography.labelLarge,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+                    }
+
+                    Surface(
+                        onClick = onToggleWatchlist,
+                        enabled = !isWatchlistToggling,
+                        color = if (isInWatchlist) MaterialTheme.colorScheme.primaryContainer else CineElevated,
+                        shape = RoundedCornerShape(10.dp),
+                        border = BorderStroke(
+                            1.dp,
+                            if (isInWatchlist) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline
+                        ),
+                        modifier = Modifier
+                            .size(48.dp)
+                            .testTag("toggle_watchlist_button_${movie.uniqueKey}"),
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            if (isWatchlistToggling) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(16.dp),
+                                    strokeWidth = 2.dp,
+                                )
                             } else {
-                                stringResource(R.string.mark_as_watched)
-                            },
-                            style = MaterialTheme.typography.labelLarge,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
+                                Icon(
+                                    imageVector = if (isInWatchlist) Icons.Rounded.Bookmark else Icons.Rounded.BookmarkBorder,
+                                    contentDescription = if (isInWatchlist) {
+                                        stringResource(R.string.in_watchlist)
+                                    } else {
+                                        stringResource(R.string.add_to_watchlist)
+                                    },
+                                    tint = if (isInWatchlist) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.size(20.dp),
+                                )
+                            }
+                        }
+                    }
+
+                    if (onAddToList != null) {
+                        Surface(
+                            onClick = onAddToList,
+                            color = CineElevated,
+                            shape = RoundedCornerShape(10.dp),
+                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
+                            modifier = Modifier
+                                .size(48.dp)
+                                .testTag("add_to_list_button_${movie.uniqueKey}"),
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                Icon(
+                                    imageVector = Icons.AutoMirrored.Rounded.PlaylistAdd,
+                                    contentDescription = "Add ${movie.title} to custom list",
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.size(20.dp),
+                                )
+                            }
+                        }
                     }
                 }
             }

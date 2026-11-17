@@ -2,6 +2,7 @@ package com.example.ui.screens
 
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -25,14 +26,22 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.PlaylistAdd
 import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.rounded.Bookmark
+import androidx.compose.material.icons.rounded.BookmarkBorder
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.DeleteOutline
+import androidx.compose.material.icons.rounded.Language
 import androidx.compose.material.icons.rounded.LiveTv
 import androidx.compose.material.icons.rounded.Person
+import androidx.compose.material.icons.rounded.PhotoLibrary
+import androidx.compose.material.icons.rounded.Repeat
 import androidx.compose.material.icons.rounded.Schedule
+import androidx.compose.material.icons.rounded.Share
 import androidx.compose.material.icons.rounded.Star
+import androidx.compose.material.icons.rounded.Tv
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -75,9 +84,14 @@ import coil.compose.AsyncImage
 import com.example.R
 import com.example.data.model.CastMember
 import com.example.data.model.MediaType
+import com.example.data.model.QuickReaction
+import com.example.data.model.TmdbImageItem
+import com.example.data.model.WatchProviderInfo
+import com.example.data.model.WatchProvidersRegion
 import com.example.data.model.WatchedMovie
 import com.example.ui.MovieModalState
 import com.example.ui.components.InteractiveStarRatingBar
+import com.example.ui.components.YouTubeTrailerPlayer
 import com.example.ui.theme.CineCharcoal
 import com.example.ui.theme.CineElevated
 import com.example.ui.theme.CineEmerald
@@ -92,10 +106,18 @@ import java.util.Locale
 fun MovieDetailsSheet(
     modalState: MovieModalState,
     watchedMovie: WatchedMovie?,
+    isInWatchlist: Boolean,
     isTogglingWatched: Boolean,
+    isTogglingWatchlist: Boolean,
     onDismiss: () -> Unit,
     onToggleWatched: () -> Unit,
-    onSaveReview: (userRating: Int, note: String, watchedSeason: Int) -> Unit,
+    onToggleWatchlist: () -> Unit,
+    onAddToList: () -> Unit,
+    onLogRewatch: (WatchedMovie) -> Unit,
+    onRemoveWatchDate: (WatchedMovie, Int) -> Unit,
+    onShareCard: ((WatchedMovie) -> Unit)?,
+    onOpenImageGalleryItem: (String, TmdbImageItem) -> Unit,
+    onSaveReview: (userRating: Int, note: String, watchedSeason: Int, reaction: String) -> Unit,
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val summary = modalState.summary
@@ -112,12 +134,21 @@ fun MovieDetailsSheet(
     var draftSeason by remember(modalState.uniqueKey, watchedMovie?.watchedSeason) {
         mutableIntStateOf(watchedMovie?.watchedSeason ?: 0)
     }
+    var draftReaction by remember(modalState.uniqueKey, watchedMovie?.reaction) {
+        mutableStateOf(watchedMovie?.reaction.orEmpty())
+    }
 
-    LaunchedEffect(watchedMovie?.userRating, watchedMovie?.note, watchedMovie?.watchedSeason) {
+    LaunchedEffect(
+        watchedMovie?.userRating,
+        watchedMovie?.note,
+        watchedMovie?.watchedSeason,
+        watchedMovie?.reaction,
+    ) {
         if (watchedMovie != null) {
             draftRating = watchedMovie.userRating
             draftNote = watchedMovie.note
             draftSeason = watchedMovie.watchedSeason
+            draftReaction = watchedMovie.reaction
         }
     }
 
@@ -255,7 +286,7 @@ fun MovieDetailsSheet(
                     .padding(horizontal = 20.dp, vertical = 14.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp),
             ) {
-                // Year • Seasons/Episodes • Runtime • TMDB Score
+                // Year • Seasons/Episodes • Runtime • Language • TMDB Score
                 FlowRow(
                     horizontalArrangement = Arrangement.spacedBy(10.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp),
@@ -270,6 +301,34 @@ fun MovieDetailsSheet(
                             color = MaterialTheme.colorScheme.onSurface,
                             modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
                         )
+                    }
+
+                    val languageName = details?.languageName?.takeIf { it.isNotBlank() }
+                        ?: summary.languageName.takeIf { it.isNotBlank() }
+                        ?: watchedMovie?.languageName.orEmpty()
+                    if (languageName.isNotBlank()) {
+                        Surface(
+                            color = CineElevated,
+                            shape = RoundedCornerShape(8.dp),
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Rounded.Language,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(15.dp),
+                                )
+                                Text(
+                                    text = languageName,
+                                    style = MaterialTheme.typography.labelLarge,
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                )
+                            }
+                        }
                     }
 
                     val totalSeasons = details?.numberOfSeasons ?: watchedMovie?.numberOfSeasons ?: 0
@@ -342,6 +401,18 @@ fun MovieDetailsSheet(
                     }
                 }
 
+                // Directors / Creators line
+                val directors = details?.directors?.takeIf { it.isNotEmpty() }
+                    ?: watchedMovie?.directors.orEmpty()
+                if (directors.isNotEmpty()) {
+                    Text(
+                        text = "${if (isTv) "Created by" else "Directed by"} ${directors.joinToString(", ")}",
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        fontWeight = FontWeight.Medium,
+                    )
+                }
+
                 // Genre pills
                 val genres = details?.genres?.takeIf { it.isNotEmpty() }
                     ?: watchedMovie?.genres.orEmpty()
@@ -366,85 +437,227 @@ fun MovieDetailsSheet(
                     }
                 }
 
-                // Mark as Watched / Remove toggle
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                ) {
-                    if (isWatched) {
-                        Surface(
-                            color = CineEmeraldContainer,
-                            shape = RoundedCornerShape(12.dp),
-                            border = BorderStroke(1.dp, CineEmerald.copy(alpha = 0.5f)),
-                            modifier = Modifier
-                                .weight(1f)
-                                .height(48.dp),
-                        ) {
-                            Row(
-                                modifier = Modifier.fillMaxSize(),
-                                horizontalArrangement = Arrangement.Center,
-                                verticalAlignment = Alignment.CenterVertically,
+                // Mark as Watched / Watchlist / Share Card Actions
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    ) {
+                        if (isWatched) {
+                            Surface(
+                                color = CineEmeraldContainer,
+                                shape = RoundedCornerShape(12.dp),
+                                border = BorderStroke(1.dp, CineEmerald.copy(alpha = 0.5f)),
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .height(48.dp),
+                            ) {
+                                Row(
+                                    modifier = Modifier.fillMaxSize(),
+                                    horizontalArrangement = Arrangement.Center,
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Rounded.Check,
+                                        contentDescription = null,
+                                        tint = CineEmerald,
+                                        modifier = Modifier.size(18.dp),
+                                    )
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text(
+                                        text = "In Watched",
+                                        style = MaterialTheme.typography.labelLarge,
+                                        color = CineEmerald,
+                                    )
+                                }
+                            }
+                            if (onShareCard != null) {
+                                Button(
+                                    onClick = { onShareCard(watchedMovie!!) },
+                                    shape = RoundedCornerShape(12.dp),
+                                    modifier = Modifier
+                                        .height(48.dp)
+                                        .testTag("modal_share_card_button"),
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Rounded.Share,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(18.dp),
+                                    )
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text("Share Card")
+                                }
+                            }
+                            OutlinedButton(
+                                onClick = onToggleWatched,
+                                enabled = !isTogglingWatched,
+                                shape = RoundedCornerShape(12.dp),
+                                border = BorderStroke(1.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.6f)),
+                                colors = ButtonDefaults.outlinedButtonColors(
+                                    contentColor = MaterialTheme.colorScheme.error,
+                                ),
+                                modifier = Modifier
+                                    .height(48.dp)
+                                    .testTag("modal_remove_watched_button"),
                             ) {
                                 Icon(
-                                    imageVector = Icons.Rounded.Check,
+                                    imageVector = Icons.Rounded.DeleteOutline,
+                                    contentDescription = stringResource(R.string.remove_from_watched),
+                                )
+                            }
+                        } else {
+                            Button(
+                                onClick = onToggleWatched,
+                                enabled = !isTogglingWatched,
+                                shape = RoundedCornerShape(12.dp),
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .height(48.dp)
+                                    .testTag("modal_mark_watched_button"),
+                            ) {
+                                if (isTogglingWatched) {
+                                    CircularProgressIndicator(
+                                        modifier = Modifier.size(18.dp),
+                                        strokeWidth = 2.dp,
+                                        color = MaterialTheme.colorScheme.onPrimary,
+                                    )
+                                } else {
+                                    Icon(
+                                        imageVector = Icons.Rounded.Add,
+                                        contentDescription = null,
+                                    )
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text(stringResource(R.string.mark_as_watched))
+                                }
+                            }
+
+                            OutlinedButton(
+                                onClick = onToggleWatchlist,
+                                enabled = !isTogglingWatchlist,
+                                shape = RoundedCornerShape(12.dp),
+                                modifier = Modifier
+                                    .height(48.dp)
+                                    .testTag("modal_watchlist_button"),
+                            ) {
+                                if (isTogglingWatchlist) {
+                                    CircularProgressIndicator(
+                                        modifier = Modifier.size(16.dp),
+                                        strokeWidth = 2.dp,
+                                    )
+                                } else {
+                                    Icon(
+                                        imageVector = if (isInWatchlist) Icons.Rounded.Bookmark else Icons.Rounded.BookmarkBorder,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(18.dp),
+                                    )
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text(
+                                        if (isInWatchlist) stringResource(R.string.in_watchlist)
+                                        else "Watchlist"
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    // Add to Custom List button & Rewatch Counter when watched
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    ) {
+                        OutlinedButton(
+                            onClick = onAddToList,
+                            shape = RoundedCornerShape(12.dp),
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(48.dp)
+                                .testTag("modal_add_to_list_button"),
+                        ) {
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Rounded.PlaylistAdd,
+                                contentDescription = null,
+                                modifier = Modifier.size(18.dp),
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("Add to List")
+                        }
+
+                        if (watchedMovie != null) {
+                            Button(
+                                onClick = { onLogRewatch(watchedMovie) },
+                                shape = RoundedCornerShape(12.dp),
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = CineElevated,
+                                    contentColor = CineGold,
+                                ),
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .height(48.dp)
+                                    .testTag("modal_watched_again_button"),
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Rounded.Repeat,
                                     contentDescription = null,
-                                    tint = CineEmerald,
                                     modifier = Modifier.size(18.dp),
                                 )
                                 Spacer(modifier = Modifier.width(6.dp))
-                                Text(
-                                    text = "In Your Watched List",
-                                    style = MaterialTheme.typography.labelLarge,
-                                    color = CineEmerald,
-                                )
+                                Text("Watched again (${watchedMovie.watchCount}×)")
                             }
                         }
-                        OutlinedButton(
-                            onClick = onToggleWatched,
-                            enabled = !isTogglingWatched,
-                            shape = RoundedCornerShape(12.dp),
-                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.6f)),
-                            colors = ButtonDefaults.outlinedButtonColors(
-                                contentColor = MaterialTheme.colorScheme.error,
-                            ),
-                            modifier = Modifier
-                                .height(48.dp)
-                                .testTag("modal_remove_watched_button"),
+                    }
+
+                    // Watch Diary date chips when watched
+                    if (watchedMovie != null && watchedMovie.resolvedWatchDates.isNotEmpty()) {
+                        FlowRow(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalArrangement = Arrangement.spacedBy(6.dp),
                         ) {
-                            Icon(
-                                imageVector = Icons.Rounded.DeleteOutline,
-                                contentDescription = stringResource(R.string.remove_from_watched),
+                            Text(
+                                text = "Watch dates:",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.align(Alignment.CenterVertically),
                             )
-                        }
-                    } else {
-                        Button(
-                            onClick = onToggleWatched,
-                            enabled = !isTogglingWatched,
-                            shape = RoundedCornerShape(12.dp),
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(48.dp)
-                                .testTag("modal_mark_watched_button"),
-                        ) {
-                            if (isTogglingWatched) {
-                                CircularProgressIndicator(
-                                    modifier = Modifier.size(18.dp),
-                                    strokeWidth = 2.dp,
-                                    color = MaterialTheme.colorScheme.onPrimary,
-                                )
-                            } else {
-                                Icon(
-                                    imageVector = Icons.Rounded.Add,
-                                    contentDescription = null,
-                                )
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Text(stringResource(R.string.mark_as_watched))
+                            val dates = watchedMovie.resolvedWatchDates
+                            dates.forEachIndexed { idx, iso ->
+                                Surface(
+                                    color = CineElevated,
+                                    shape = RoundedCornerShape(50),
+                                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(
+                                            start = 10.dp,
+                                            top = 4.dp,
+                                            end = if (dates.size > 1) 4.dp else 10.dp,
+                                            bottom = 4.dp,
+                                        ),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                    ) {
+                                        Text(
+                                            text = iso,
+                                            style = MaterialTheme.typography.labelMedium,
+                                            color = MaterialTheme.colorScheme.onSurface,
+                                        )
+                                        if (dates.size > 1) {
+                                            Icon(
+                                                imageVector = Icons.Rounded.Close,
+                                                contentDescription = "Remove watch date $iso",
+                                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                modifier = Modifier
+                                                    .size(16.dp)
+                                                    .clickable { onRemoveWatchDate(watchedMovie, idx) },
+                                            )
+                                        }
+                                    }
+                                }
                             }
                         }
                     }
                 }
 
-                // Personal Rating, Season Watched (for TV) & Watch Note card
+                // Personal Rating, Quick Emoji Reaction, Season Watched (for TV) & Watch Note card
                 Surface(
                     color = CineElevated,
                     shape = MaterialTheme.shapes.medium,
@@ -519,6 +732,35 @@ fun MovieDetailsSheet(
                             )
                         }
 
+                        // Quick Emoji Reactions selector
+                        Text(
+                            text = "Quick Reaction",
+                            style = MaterialTheme.typography.titleMedium,
+                            color = MaterialTheme.colorScheme.onSurface,
+                        )
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .horizontalScroll(rememberScrollState()),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            QuickReaction.entries.forEach { reaction ->
+                                val selected = draftReaction == reaction.key
+                                FilterChip(
+                                    selected = selected,
+                                    onClick = {
+                                        draftReaction = if (selected) "" else reaction.key
+                                    },
+                                    label = { Text("${reaction.emoji} ${reaction.label}") },
+                                    colors = FilterChipDefaults.filterChipColors(
+                                        selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
+                                        selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                                    ),
+                                    modifier = Modifier.testTag("modal_reaction_${reaction.key}"),
+                                )
+                            }
+                        }
+
                         OutlinedTextField(
                             value = draftNote,
                             onValueChange = { if (it.length <= 1000) draftNote = it },
@@ -539,7 +781,9 @@ fun MovieDetailsSheet(
                         )
 
                         Button(
-                            onClick = { onSaveReview(draftRating, draftNote, draftSeason) },
+                            onClick = {
+                                onSaveReview(draftRating, draftNote, draftSeason, draftReaction)
+                            },
                             enabled = !modalState.isSavingReview,
                             shape = RoundedCornerShape(10.dp),
                             modifier = Modifier
@@ -569,6 +813,20 @@ fun MovieDetailsSheet(
                     }
                 }
 
+                // Lazy-loaded YouTube Official Trailer
+                val trailer = details?.trailerVideo
+                if (trailer != null) {
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outline)
+                    YouTubeTrailerPlayer(trailer = trailer)
+                }
+
+                // India OTT Watch Providers Section
+                val providersIN = details?.watchProvidersIN
+                if (providersIN != null && !providersIN.isEmpty) {
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outline)
+                    IndiaWatchProvidersSection(providersIN = providersIN)
+                }
+
                 // Synopsis
                 val overview = details?.overview?.takeIf { it.isNotBlank() } ?: summary.overview
                 if (overview.isNotBlank()) {
@@ -584,6 +842,73 @@ fun MovieDetailsSheet(
                             style = MaterialTheme.typography.bodyLarge,
                             color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.9f),
                         )
+                    }
+                }
+
+                // High-Quality Backdrops & Posters Gallery (Wallpaper / Download)
+                val images = details?.images
+                if (images != null && !images.isEmpty) {
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outline)
+                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            Icon(
+                                imageVector = Icons.Rounded.PhotoLibrary,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(18.dp),
+                            )
+                            Text(
+                                text = "BACKDROPS & POSTERS GALLERY",
+                                style = MaterialTheme.typography.titleMedium,
+                                color = MaterialTheme.colorScheme.primary,
+                            )
+                        }
+                        Text(
+                            text = "Tap any artwork to download original quality or crop a 9:16 phone wallpaper.",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        val galleryItems = (images.backdrops + images.posters).distinctBy { it.filePath }
+                        LazyRow(
+                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                            contentPadding = PaddingValues(end = 8.dp),
+                        ) {
+                            items(galleryItems, key = { it.filePath }) { img ->
+                                Box(
+                                    modifier = Modifier
+                                        .width(if (img.isBackdrop) 200.dp else 104.dp)
+                                        .height(140.dp)
+                                        .clip(RoundedCornerShape(12.dp))
+                                        .background(CineElevated)
+                                        .clickable { onOpenImageGalleryItem(summary.title, img) }
+                                        .testTag("gallery_image_${img.filePath}"),
+                                ) {
+                                    AsyncImage(
+                                        model = img.previewUrl(),
+                                        contentDescription = "${summary.title} artwork",
+                                        contentScale = ContentScale.Crop,
+                                        modifier = Modifier.fillMaxSize(),
+                                    )
+                                    Surface(
+                                        color = CineObsidian.copy(alpha = 0.72f),
+                                        shape = RoundedCornerShape(6.dp),
+                                        modifier = Modifier
+                                            .align(Alignment.BottomEnd)
+                                            .padding(6.dp),
+                                    ) {
+                                        Text(
+                                            text = if (img.isBackdrop) "Backdrop" else "Poster",
+                                            style = MaterialTheme.typography.labelMedium,
+                                            color = Color.White,
+                                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                        )
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
 
@@ -609,6 +934,100 @@ fun MovieDetailsSheet(
                 }
 
                 Spacer(modifier = Modifier.height(12.dp))
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun IndiaWatchProvidersSection(providersIN: WatchProvidersRegion) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag("india_watch_providers_section"),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Icon(
+                imageVector = Icons.Rounded.Tv,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(18.dp),
+            )
+            Text(
+                text = "WHERE TO WATCH (INDIA)",
+                style = MaterialTheme.typography.titleMedium,
+                color = MaterialTheme.colorScheme.primary,
+            )
+        }
+
+        if (providersIN.flatrate.isNotEmpty()) {
+            ProviderCategoryRow(label = "Stream", providers = providersIN.flatrate)
+        }
+        if (providersIN.rent.isNotEmpty()) {
+            ProviderCategoryRow(label = "Rent", providers = providersIN.rent)
+        }
+        if (providersIN.buy.isNotEmpty()) {
+            ProviderCategoryRow(label = "Buy", providers = providersIN.buy)
+        }
+
+        Text(
+            text = stringResource(R.string.justwatch_attribution),
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun ProviderCategoryRow(
+    label: String,
+    providers: List<WatchProviderInfo>,
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelLarge,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        FlowRow(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            providers.forEach { provider ->
+                Surface(
+                    color = CineElevated,
+                    shape = RoundedCornerShape(10.dp),
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        val logoUrl = provider.fullLogoUrl()
+                        if (logoUrl != null) {
+                            AsyncImage(
+                                model = logoUrl,
+                                contentDescription = provider.providerName,
+                                contentScale = ContentScale.Crop,
+                                modifier = Modifier
+                                    .size(22.dp)
+                                    .clip(RoundedCornerShape(5.dp)),
+                            )
+                        }
+                        Text(
+                            text = provider.providerName,
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurface,
+                        )
+                    }
+                }
             }
         }
     }

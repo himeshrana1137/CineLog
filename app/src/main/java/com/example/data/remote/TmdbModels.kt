@@ -1,9 +1,14 @@
 package com.example.data.remote
 
 import com.example.data.model.CastMember
+import com.example.data.model.MediaImages
 import com.example.data.model.MediaType
+import com.example.data.model.MediaVideo
 import com.example.data.model.MovieDetails
 import com.example.data.model.MovieSummary
+import com.example.data.model.TmdbImageItem
+import com.example.data.model.WatchProviderInfo
+import com.example.data.model.WatchProvidersRegion
 import com.squareup.moshi.Json
 import com.squareup.moshi.JsonClass
 
@@ -24,6 +29,7 @@ data class TmdbMovieDto(
     @Json(name = "vote_average") val voteAverage: Double = 0.0,
     val overview: String? = null,
     val popularity: Double = 0.0,
+    @Json(name = "original_language") val originalLanguage: String? = null,
 ) {
     fun toSummary(): MovieSummary = MovieSummary(
         movieId = id,
@@ -35,6 +41,7 @@ data class TmdbMovieDto(
         rating = voteAverage,
         overview = overview.orEmpty(),
         popularity = popularity,
+        originalLanguage = originalLanguage.orEmpty().lowercase(),
     )
 }
 
@@ -55,6 +62,7 @@ data class TmdbTvDto(
     @Json(name = "vote_average") val voteAverage: Double = 0.0,
     val overview: String? = null,
     val popularity: Double = 0.0,
+    @Json(name = "original_language") val originalLanguage: String? = null,
 ) {
     fun toSummary(): MovieSummary = MovieSummary(
         movieId = id,
@@ -66,6 +74,7 @@ data class TmdbTvDto(
         rating = voteAverage,
         overview = overview.orEmpty(),
         popularity = popularity,
+        originalLanguage = originalLanguage.orEmpty().lowercase(),
     )
 }
 
@@ -80,33 +89,52 @@ data class TmdbMovieDetailDto(
     val overview: String? = null,
     val runtime: Int? = null,
     val tagline: String? = null,
+    @Json(name = "original_language") val originalLanguage: String? = null,
     val genres: List<TmdbGenreDto> = emptyList(),
     val credits: TmdbCreditsDto? = null,
 ) {
-    fun toDetails(): MovieDetails = MovieDetails(
-        movieId = id,
-        mediaType = MediaType.MOVIE,
-        title = title.ifBlank { "Untitled" },
-        posterPath = posterPath,
-        backdropPath = backdropPath,
-        releaseDate = releaseDate.orEmpty(),
-        rating = voteAverage,
-        overview = overview.orEmpty(),
-        runtime = runtime ?: 0,
-        genres = genres.map { it.name }.filter { it.isNotBlank() }.take(10),
-        cast = credits?.cast.orEmpty()
-            .sortedBy { it.order ?: Int.MAX_VALUE }
-            .take(12)
-            .map {
-                CastMember(
-                    id = it.id,
-                    name = it.name,
-                    character = it.character.orEmpty(),
-                    profilePath = it.profilePath,
-                )
-            },
-        tagline = tagline.orEmpty(),
-    )
+    fun toDetails(
+        images: MediaImages = MediaImages(),
+        watchProvidersIN: WatchProvidersRegion? = null,
+        trailerVideo: MediaVideo? = null,
+    ): MovieDetails {
+        val directors = credits?.crew.orEmpty()
+            .filter { it.job.equals("Director", ignoreCase = true) }
+            .map { it.name.trim() }
+            .filter { it.isNotBlank() }
+            .distinct()
+            .take(5)
+
+        return MovieDetails(
+            movieId = id,
+            mediaType = MediaType.MOVIE,
+            title = title.ifBlank { "Untitled" },
+            posterPath = posterPath,
+            backdropPath = backdropPath,
+            releaseDate = releaseDate.orEmpty(),
+            rating = voteAverage,
+            overview = overview.orEmpty(),
+            runtime = runtime ?: 0,
+            genres = genres.map { it.name }.filter { it.isNotBlank() }.take(10),
+            cast = credits?.cast.orEmpty()
+                .sortedBy { it.order ?: Int.MAX_VALUE }
+                .take(10)
+                .map {
+                    CastMember(
+                        id = it.id,
+                        name = it.name,
+                        character = it.character.orEmpty(),
+                        profilePath = it.profilePath,
+                    )
+                },
+            directors = directors,
+            originalLanguage = originalLanguage.orEmpty().lowercase(),
+            tagline = tagline.orEmpty(),
+            images = images,
+            watchProvidersIN = watchProvidersIN,
+            trailerVideo = trailerVideo,
+        )
+    }
 }
 
 @JsonClass(generateAdapter = true)
@@ -120,37 +148,62 @@ data class TmdbTvDetailDto(
     val overview: String? = null,
     @Json(name = "episode_run_time") val episodeRunTime: List<Int> = emptyList(),
     val tagline: String? = null,
+    @Json(name = "original_language") val originalLanguage: String? = null,
     val genres: List<TmdbGenreDto> = emptyList(),
     @Json(name = "number_of_seasons") val numberOfSeasons: Int? = null,
     @Json(name = "number_of_episodes") val numberOfEpisodes: Int? = null,
+    @Json(name = "created_by") val createdBy: List<TmdbCreatorDto> = emptyList(),
     val credits: TmdbCreditsDto? = null,
 ) {
-    fun toDetails(): MovieDetails = MovieDetails(
-        movieId = id,
-        mediaType = MediaType.TV,
-        title = name.ifBlank { "Untitled Series" },
-        posterPath = posterPath,
-        backdropPath = backdropPath,
-        releaseDate = firstAirDate.orEmpty(),
-        rating = voteAverage,
-        overview = overview.orEmpty(),
-        runtime = episodeRunTime.firstOrNull { it > 0 } ?: 0,
-        genres = genres.map { it.name }.filter { it.isNotBlank() }.take(10),
-        cast = credits?.cast.orEmpty()
-            .sortedBy { it.order ?: Int.MAX_VALUE }
-            .take(12)
-            .map {
-                CastMember(
-                    id = it.id,
-                    name = it.name,
-                    character = it.character.orEmpty(),
-                    profilePath = it.profilePath,
-                )
-            },
-        tagline = tagline.orEmpty(),
-        numberOfSeasons = numberOfSeasons ?: 0,
-        numberOfEpisodes = numberOfEpisodes ?: 0,
-    )
+    fun toDetails(
+        images: MediaImages = MediaImages(),
+        watchProvidersIN: WatchProvidersRegion? = null,
+        trailerVideo: MediaVideo? = null,
+    ): MovieDetails {
+        val directorsFromCrew = credits?.crew.orEmpty()
+            .filter {
+                it.job.equals("Director", ignoreCase = true) ||
+                    it.job.equals("Series Director", ignoreCase = true)
+            }
+            .map { it.name.trim() }
+        val creators = createdBy.map { it.name.trim() }
+        val combinedDirectors = (creators + directorsFromCrew)
+            .filter { it.isNotBlank() }
+            .distinct()
+            .take(5)
+
+        return MovieDetails(
+            movieId = id,
+            mediaType = MediaType.TV,
+            title = name.ifBlank { "Untitled Series" },
+            posterPath = posterPath,
+            backdropPath = backdropPath,
+            releaseDate = firstAirDate.orEmpty(),
+            rating = voteAverage,
+            overview = overview.orEmpty(),
+            runtime = episodeRunTime.firstOrNull { it > 0 } ?: 0,
+            genres = genres.map { it.name }.filter { it.isNotBlank() }.take(10),
+            cast = credits?.cast.orEmpty()
+                .sortedBy { it.order ?: Int.MAX_VALUE }
+                .take(10)
+                .map {
+                    CastMember(
+                        id = it.id,
+                        name = it.name,
+                        character = it.character.orEmpty(),
+                        profilePath = it.profilePath,
+                    )
+                },
+            directors = combinedDirectors,
+            originalLanguage = originalLanguage.orEmpty().lowercase(),
+            tagline = tagline.orEmpty(),
+            numberOfSeasons = numberOfSeasons ?: 0,
+            numberOfEpisodes = numberOfEpisodes ?: 0,
+            images = images,
+            watchProvidersIN = watchProvidersIN,
+            trailerVideo = trailerVideo,
+        )
+    }
 }
 
 @JsonClass(generateAdapter = true)
@@ -160,8 +213,15 @@ data class TmdbGenreDto(
 )
 
 @JsonClass(generateAdapter = true)
+data class TmdbCreatorDto(
+    val id: Long = 0L,
+    val name: String = "",
+)
+
+@JsonClass(generateAdapter = true)
 data class TmdbCreditsDto(
     val cast: List<TmdbCastDto> = emptyList(),
+    val crew: List<TmdbCrewDto> = emptyList(),
 )
 
 @JsonClass(generateAdapter = true)
@@ -172,3 +232,139 @@ data class TmdbCastDto(
     @Json(name = "profile_path") val profilePath: String? = null,
     val order: Int? = null,
 )
+
+@JsonClass(generateAdapter = true)
+data class TmdbCrewDto(
+    val id: Long = 0L,
+    val name: String = "",
+    val job: String? = null,
+    val department: String? = null,
+)
+
+@JsonClass(generateAdapter = true)
+data class TmdbImagesResponse(
+    val id: Long = 0L,
+    val backdrops: List<TmdbImageDto> = emptyList(),
+    val posters: List<TmdbImageDto> = emptyList(),
+) {
+    fun toMediaImages(): MediaImages = MediaImages(
+        backdrops = backdrops
+            .filter { it.filePath.isNotBlank() }
+            .sortedByDescending { it.voteAverage }
+            .take(15)
+            .map {
+                TmdbImageItem(
+                    filePath = it.filePath,
+                    width = it.width,
+                    height = it.height,
+                    aspectRatio = it.aspectRatio,
+                    isBackdrop = true,
+                )
+            },
+        posters = posters
+            .filter { it.filePath.isNotBlank() }
+            .sortedByDescending { it.voteAverage }
+            .take(15)
+            .map {
+                TmdbImageItem(
+                    filePath = it.filePath,
+                    width = it.width,
+                    height = it.height,
+                    aspectRatio = it.aspectRatio,
+                    isBackdrop = false,
+                )
+            },
+    )
+}
+
+@JsonClass(generateAdapter = true)
+data class TmdbImageDto(
+    @Json(name = "file_path") val filePath: String = "",
+    val width: Int = 0,
+    val height: Int = 0,
+    @Json(name = "aspect_ratio") val aspectRatio: Double = 1.0,
+    @Json(name = "vote_average") val voteAverage: Double = 0.0,
+)
+
+@JsonClass(generateAdapter = true)
+data class TmdbWatchProvidersResponse(
+    val id: Long = 0L,
+    val results: Map<String, TmdbWatchProviderRegionDto> = emptyMap(),
+) {
+    fun toIndiaProviders(): WatchProvidersRegion? {
+        val inRegion = results["IN"] ?: return null
+        val mapped = WatchProvidersRegion(
+            regionCode = "IN",
+            link = inRegion.link,
+            flatrate = inRegion.flatrate.map { it.toModel() }.sortedBy { it.providerName },
+            rent = inRegion.rent.map { it.toModel() }.sortedBy { it.providerName },
+            buy = inRegion.buy.map { it.toModel() }.sortedBy { it.providerName },
+        )
+        return if (mapped.isEmpty) null else mapped
+    }
+}
+
+@JsonClass(generateAdapter = true)
+data class TmdbWatchProviderRegionDto(
+    val link: String? = null,
+    val flatrate: List<TmdbWatchProviderDto> = emptyList(),
+    val rent: List<TmdbWatchProviderDto> = emptyList(),
+    val buy: List<TmdbWatchProviderDto> = emptyList(),
+)
+
+@JsonClass(generateAdapter = true)
+data class TmdbWatchProviderDto(
+    @Json(name = "provider_id") val providerId: Int = 0,
+    @Json(name = "provider_name") val providerName: String = "",
+    @Json(name = "logo_path") val logoPath: String? = null,
+    @Json(name = "display_priority") val displayPriority: Int = 999,
+) {
+    fun toModel(): WatchProviderInfo = WatchProviderInfo(
+        providerId = providerId,
+        providerName = providerName,
+        logoPath = logoPath,
+    )
+}
+
+@JsonClass(generateAdapter = true)
+data class TmdbVideosResponse(
+    val id: Long = 0L,
+    val results: List<TmdbVideoDto> = emptyList(),
+) {
+    fun toBestYoutubeTrailer(): MediaVideo? {
+        val youtubeVideos = results.filter {
+            it.site.equals("YouTube", ignoreCase = true) && it.key.isNotBlank()
+        }
+        if (youtubeVideos.isEmpty()) return null
+        val best = youtubeVideos.sortedWith(
+            compareByDescending<TmdbVideoDto> { it.type.equals("Trailer", ignoreCase = true) && it.official }
+                .thenByDescending { it.type.equals("Trailer", ignoreCase = true) }
+                .thenByDescending { it.type.equals("Teaser", ignoreCase = true) && it.official }
+                .thenByDescending { it.type.equals("Teaser", ignoreCase = true) }
+                .thenByDescending { it.official }
+                .thenByDescending { it.size }
+        ).first()
+        return MediaVideo(
+            id = best.id,
+            key = best.key.trim(),
+            name = best.name.ifBlank { "Official Trailer" },
+            site = best.site,
+            type = best.type,
+            official = best.official,
+            publishedAt = best.publishedAt.orEmpty(),
+        )
+    }
+}
+
+@JsonClass(generateAdapter = true)
+data class TmdbVideoDto(
+    val id: String = "",
+    val key: String = "",
+    val name: String = "",
+    val site: String = "",
+    val type: String = "",
+    val official: Boolean = false,
+    val size: Int = 0,
+    @Json(name = "published_at") val publishedAt: String? = null,
+)
+

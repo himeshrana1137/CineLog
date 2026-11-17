@@ -2,7 +2,7 @@
   "entities": {
     "WatchedMovie": {
       "title": "WatchedMovie",
-      "description": "A movie or TV series marked as watched by an authenticated user, including TMDB metadata, watch timestamp, optional season progress, and personal rating/note.",
+      "description": "A movie or TV series marked as watched by an authenticated user, including TMDB metadata, runtime, cast, directors, language, emoji reaction, watch timestamp, optional season progress, and personal rating/note.",
       "type": "object",
       "properties": {
         "userId": {
@@ -42,6 +42,15 @@
           "type": "string",
           "description": "User's personal watch note or short review."
         },
+        "reaction": {
+          "type": "string",
+          "enum": ["", "mind_blown", "emotional", "masterpiece", "hilarious", "boring"],
+          "description": "Quick emoji reaction key."
+        },
+        "originalLanguage": {
+          "type": "string",
+          "description": "TMDB original_language ISO-639-1 code (e.g. 'en', 'hi', 'gu', 'ko', 'ja')."
+        },
         "overview": {
           "type": "string",
           "description": "Movie or TV series synopsis from TMDB."
@@ -49,6 +58,14 @@
         "genres": {
           "type": "array",
           "description": "List of up to 10 genre names."
+        },
+        "cast": {
+          "type": "array",
+          "description": "List of up to 10 top cast actor names."
+        },
+        "directors": {
+          "type": "array",
+          "description": "List of up to 10 director or series creator names."
         },
         "runtime": {
           "type": "integer",
@@ -65,6 +82,10 @@
         "watchedSeason": {
           "type": "integer",
           "description": "Specific season watched by the user (0 = full show / unspecified, 1+ = specific season)."
+        },
+        "watchLog": {
+          "type": "array",
+          "description": "Ordered list of ISO-8601 watch/rewatch date strings (YYYY-MM-DD)."
         },
         "watchedAt": {
           "type": "string",
@@ -86,6 +107,156 @@
         "watchedAt",
         "updatedAt"
       ]
+    },
+    "WatchlistItem": {
+      "title": "WatchlistItem",
+      "description": "A movie or TV series saved to a user's Watch Later queue.",
+      "type": "object",
+      "properties": {
+        "userId": {
+          "type": "string",
+          "description": "UID of the authenticated user who owns this watchlist entry."
+        },
+        "movieId": {
+          "type": "integer",
+          "description": "TMDB numeric movie or TV show ID."
+        },
+        "mediaType": {
+          "type": "string",
+          "enum": ["movie", "tv"],
+          "description": "Media type: 'movie' or 'tv'."
+        },
+        "title": {
+          "type": "string",
+          "description": "Movie title or TV series name."
+        },
+        "posterPath": {
+          "type": "string",
+          "description": "TMDB relative poster image path."
+        },
+        "releaseDate": {
+          "type": "string",
+          "description": "Release or first air date."
+        },
+        "rating": {
+          "type": "number",
+          "description": "TMDB community vote average (0.0 to 10.0)."
+        },
+        "overview": {
+          "type": "string",
+          "description": "Synopsis from TMDB."
+        },
+        "originalLanguage": {
+          "type": "string",
+          "description": "TMDB original_language ISO-639-1 code."
+        },
+        "genres": {
+          "type": "array",
+          "description": "List of up to 10 genre names."
+        },
+        "runtime": {
+          "type": "integer",
+          "description": "Runtime in minutes."
+        },
+        "numberOfSeasons": {
+          "type": "integer",
+          "description": "Total number of seasons for TV series."
+        },
+        "numberOfEpisodes": {
+          "type": "integer",
+          "description": "Total number of episodes for TV series."
+        },
+        "addedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when added to watchlist."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp of latest update."
+        }
+      },
+      "required": [
+        "userId",
+        "movieId",
+        "mediaType",
+        "title",
+        "rating",
+        "addedAt",
+        "updatedAt"
+      ]
+    },
+    "CustomList": {
+      "title": "CustomList",
+      "description": "A user-created custom collection of movies and TV shows with items metadata for collage previews and export.",
+      "type": "object",
+      "properties": {
+        "userId": {
+          "type": "string",
+          "description": "UID of the authenticated user who owns this custom list."
+        },
+        "name": {
+          "type": "string",
+          "description": "Custom list title."
+        },
+        "description": {
+          "type": "string",
+          "description": "Optional list description."
+        },
+        "items": {
+          "type": "array",
+          "description": "List of CustomListEntry objects (movieId, mediaType, title, posterPath, releaseDate, rating, originalLanguage)."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when list was created."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp of latest update."
+        }
+      },
+      "required": [
+        "userId",
+        "name",
+        "items",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "UserSettings": {
+      "title": "UserSettings",
+      "description": "Per-user CineLog preferences including custom theme accent color.",
+      "type": "object",
+      "properties": {
+        "userId": {
+          "type": "string",
+          "description": "UID of the authenticated user."
+        },
+        "accentPreset": {
+          "type": "string",
+          "enum": ["red", "yellow", "blue", "purple", "neon_green", "custom"],
+          "description": "Selected accent color preset key."
+        },
+        "accentHex": {
+          "type": "string",
+          "description": "Hex color code (#RRGGBB)."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp of the latest update."
+        }
+      },
+      "required": [
+        "userId",
+        "accentPreset",
+        "accentHex",
+        "updatedAt"
+      ]
     }
   },
   "firestore": {
@@ -94,6 +265,24 @@
         "$ref": "#/entities/WatchedMovie"
       },
       "description": "Per-user subcollection of watched movies and TV shows keyed by movieId (for movies) or tv_{id} (for TV shows)."
+    },
+    "/users/{userId}/watchlist/{watchlistId}": {
+      "schema": {
+        "$ref": "#/entities/WatchlistItem"
+      },
+      "description": "Per-user subcollection of Watch Later movies and TV shows keyed by movieId or tv_{id}."
+    },
+    "/users/{userId}/lists/{listId}": {
+      "schema": {
+        "$ref": "#/entities/CustomList"
+      },
+      "description": "Per-user subcollection of custom curated movie/TV lists."
+    },
+    "/users/{userId}/settings/{settingId}": {
+      "schema": {
+        "$ref": "#/entities/UserSettings"
+      },
+      "description": "Per-user settings subcollection (document ID 'preferences')."
     }
   }
 }

@@ -1,9 +1,11 @@
 package com.example.data.repository
 
 import com.example.BuildConfig
+import com.example.data.model.MediaImages
 import com.example.data.model.MediaType
 import com.example.data.model.MovieDetails
 import com.example.data.model.MovieSummary
+import com.example.data.model.WatchProvidersRegion
 import com.example.data.remote.TmdbApiService
 import com.squareup.moshi.Moshi
 import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
@@ -69,33 +71,77 @@ class TmdbRepository(
 
     fun isApiKeyConfigured(): Boolean = resolveCredential() != null
 
-    suspend fun searchMovies(query: String): Result<List<MovieSummary>> =
+    suspend fun searchMovies(query: String, year: Int? = null): Result<List<MovieSummary>> =
         runTmdbCallWithFallback { credential, mode ->
             when (mode) {
                 AuthMode.API_KEY -> apiService.searchMovies(
                     query = query.trim(),
+                    year = year,
                     apiKey = credential,
                 )
                 AuthMode.BEARER_TOKEN -> apiService.searchMovies(
                     query = query.trim(),
+                    year = year,
                     bearerAuth = "Bearer $credential",
                 )
             }.results.map { it.toSummary() }
         }
 
-    suspend fun searchTvShows(query: String): Result<List<MovieSummary>> =
+    suspend fun searchTvShows(query: String, year: Int? = null): Result<List<MovieSummary>> =
         runTmdbCallWithFallback { credential, mode ->
             when (mode) {
                 AuthMode.API_KEY -> apiService.searchTvShows(
                     query = query.trim(),
+                    firstAirDateYear = year,
                     apiKey = credential,
                 )
                 AuthMode.BEARER_TOKEN -> apiService.searchTvShows(
                     query = query.trim(),
+                    firstAirDateYear = year,
                     bearerAuth = "Bearer $credential",
                 )
             }.results.map { it.toSummary() }
         }
+
+    suspend fun searchBestImportMatch(
+        title: String,
+        year: Int?,
+        preferTv: Boolean = false,
+    ): Result<MovieSummary?> {
+        val cleanTitle = title.trim()
+        if (cleanTitle.isEmpty()) return Result.success(null)
+
+        val candidatesResult = if (preferTv) {
+            val withYear = if (year != null) searchTvShows(cleanTitle, year) else Result.success(emptyList())
+            val listWithYear = withYear.getOrNull().orEmpty()
+            if (listWithYear.isNotEmpty()) Result.success(listWithYear) else searchTvShows(cleanTitle, null)
+        } else {
+            val withYear = if (year != null) searchMovies(cleanTitle, year) else Result.success(emptyList())
+            val listWithYear = withYear.getOrNull().orEmpty()
+            if (listWithYear.isNotEmpty()) Result.success(listWithYear) else searchMovies(cleanTitle, null)
+        }
+
+        return candidatesResult.map { candidates ->
+            if (candidates.isEmpty()) return@map null
+            val targetNorm = cleanTitle.lowercase().replace(Regex("[^a-z0-9]"), "")
+            candidates.maxByOrNull { item ->
+                val itemNorm = item.title.lowercase().replace(Regex("[^a-z0-9]"), "")
+                val itemYear = item.releaseDate.take(4).toIntOrNull()
+                var score = 0.0
+                if (itemNorm == targetNorm) score += 100.0
+                else if (itemNorm.contains(targetNorm) || targetNorm.contains(itemNorm)) score += 40.0
+                if (year != null && itemYear != null) {
+                    val diff = kotlin.math.abs(year - itemYear)
+                    score += when (diff) {
+                        0 -> 80.0
+                        1 -> 30.0
+                        else -> -diff.toDouble()
+                    }
+                }
+                score + (item.popularity.coerceAtMost(50.0) * 0.2)
+            }
+        }
+    }
 
     suspend fun searchAllMedia(query: String): Result<List<MovieSummary>> =
         runTmdbCallWithFallback { credential, mode ->
@@ -153,38 +199,151 @@ class TmdbRepository(
             }
         }
 
-    suspend fun getMediaDetails(mediaId: Long, mediaType: MediaType): Result<MovieDetails> =
+    suspend fun getMediaDetails(
+        mediaId: Long,
+        mediaType: MediaType,
+        includeImagesAndProviders: Boolean = true,
+    ): Result<MovieDetails> =
         when (mediaType) {
-            MediaType.MOVIE -> getMovieDetails(mediaId)
-            MediaType.TV -> getTvShowDetails(mediaId)
+            MediaType.MOVIE -> getMovieDetails(mediaId, includeImagesAndProviders)
+            MediaType.TV -> getTvShowDetails(mediaId, includeImagesAndProviders)
         }
 
-    suspend fun getMovieDetails(movieId: Long): Result<MovieDetails> =
+    suspend fun getMovieDetails(
+        movieId: Long,
+        includeImagesAndProviders: Boolean = true,
+    ): Result<MovieDetails> =
         runTmdbCallWithFallback { credential, mode ->
-            when (mode) {
-                AuthMode.API_KEY -> apiService.getMovieDetails(
-                    movieId = movieId,
-                    apiKey = credential,
+            coroutineScope {
+                val detailDeferred = async {
+                    when (mode) {
+                        AuthMode.API_KEY -> apiService.getMovieDetails(movieId = movieId, apiKey = credential)
+                        AuthMode.BEARER_TOKEN -> apiService.getMovieDetails(movieId = movieId, bearerAuth = "Bearer $credential")
+                    }
+                }
+                val imagesDeferred = if (includeImagesAndProviders) {
+                    async {
+                        runCatching {
+                            when (mode) {
+                                AuthMode.API_KEY -> apiService.getMovieImages(movieId = movieId, apiKey = credential)
+                                AuthMode.BEARER_TOKEN -> apiService.getMovieImages(movieId = movieId, bearerAuth = "Bearer $credential")
+                            }.toMediaImages()
+                        }.getOrDefault(MediaImages())
+                    }
+                } else null
+
+                val providersDeferred = if (includeImagesAndProviders) {
+                    async {
+                        runCatching {
+                            when (mode) {
+                                AuthMode.API_KEY -> apiService.getMovieWatchProviders(movieId = movieId, apiKey = credential)
+                                AuthMode.BEARER_TOKEN -> apiService.getMovieWatchProviders(movieId = movieId, bearerAuth = "Bearer $credential")
+                            }.toIndiaProviders()
+                        }.getOrNull()
+                    }
+                } else null
+
+                val trailerDeferred = if (includeImagesAndProviders) {
+                    async {
+                        runCatching {
+                            when (mode) {
+                                AuthMode.API_KEY -> apiService.getMovieVideos(movieId = movieId, apiKey = credential)
+                                AuthMode.BEARER_TOKEN -> apiService.getMovieVideos(movieId = movieId, bearerAuth = "Bearer $credential")
+                            }.toBestYoutubeTrailer()
+                        }.getOrNull()
+                    }
+                } else null
+
+                detailDeferred.await().toDetails(
+                    images = imagesDeferred?.await() ?: MediaImages(),
+                    watchProvidersIN = providersDeferred?.await(),
+                    trailerVideo = trailerDeferred?.await(),
                 )
-                AuthMode.BEARER_TOKEN -> apiService.getMovieDetails(
-                    movieId = movieId,
-                    bearerAuth = "Bearer $credential",
-                )
-            }.toDetails()
+            }
         }
 
-    suspend fun getTvShowDetails(tvId: Long): Result<MovieDetails> =
+    suspend fun getTvShowDetails(
+        tvId: Long,
+        includeImagesAndProviders: Boolean = true,
+    ): Result<MovieDetails> =
         runTmdbCallWithFallback { credential, mode ->
-            when (mode) {
-                AuthMode.API_KEY -> apiService.getTvShowDetails(
-                    tvId = tvId,
-                    apiKey = credential,
+            coroutineScope {
+                val detailDeferred = async {
+                    when (mode) {
+                        AuthMode.API_KEY -> apiService.getTvShowDetails(tvId = tvId, apiKey = credential)
+                        AuthMode.BEARER_TOKEN -> apiService.getTvShowDetails(tvId = tvId, bearerAuth = "Bearer $credential")
+                    }
+                }
+                val imagesDeferred = if (includeImagesAndProviders) {
+                    async {
+                        runCatching {
+                            when (mode) {
+                                AuthMode.API_KEY -> apiService.getTvImages(tvId = tvId, apiKey = credential)
+                                AuthMode.BEARER_TOKEN -> apiService.getTvImages(tvId = tvId, bearerAuth = "Bearer $credential")
+                            }.toMediaImages()
+                        }.getOrDefault(MediaImages())
+                    }
+                } else null
+
+                val providersDeferred = if (includeImagesAndProviders) {
+                    async {
+                        runCatching {
+                            when (mode) {
+                                AuthMode.API_KEY -> apiService.getTvWatchProviders(tvId = tvId, apiKey = credential)
+                                AuthMode.BEARER_TOKEN -> apiService.getTvWatchProviders(tvId = tvId, bearerAuth = "Bearer $credential")
+                            }.toIndiaProviders()
+                        }.getOrNull()
+                    }
+                } else null
+
+                val trailerDeferred = if (includeImagesAndProviders) {
+                    async {
+                        runCatching {
+                            when (mode) {
+                                AuthMode.API_KEY -> apiService.getTvVideos(tvId = tvId, apiKey = credential)
+                                AuthMode.BEARER_TOKEN -> apiService.getTvVideos(tvId = tvId, bearerAuth = "Bearer $credential")
+                            }.toBestYoutubeTrailer()
+                        }.getOrNull()
+                    }
+                } else null
+
+                detailDeferred.await().toDetails(
+                    images = imagesDeferred?.await() ?: MediaImages(),
+                    watchProvidersIN = providersDeferred?.await(),
+                    trailerVideo = trailerDeferred?.await(),
                 )
-                AuthMode.BEARER_TOKEN -> apiService.getTvShowDetails(
-                    tvId = tvId,
-                    bearerAuth = "Bearer $credential",
-                )
-            }.toDetails()
+            }
+        }
+
+    suspend fun getRecommendations(
+        mediaId: Long,
+        mediaType: MediaType,
+    ): Result<List<MovieSummary>> =
+        runTmdbCallWithFallback { credential, mode ->
+            when (mediaType) {
+                MediaType.MOVIE -> when (mode) {
+                    AuthMode.API_KEY -> apiService.getMovieRecommendations(movieId = mediaId, apiKey = credential)
+                    AuthMode.BEARER_TOKEN -> apiService.getMovieRecommendations(movieId = mediaId, bearerAuth = "Bearer $credential")
+                }.results.map { it.toSummary() }
+                MediaType.TV -> when (mode) {
+                    AuthMode.API_KEY -> apiService.getTvRecommendations(tvId = mediaId, apiKey = credential)
+                    AuthMode.BEARER_TOKEN -> apiService.getTvRecommendations(tvId = mediaId, bearerAuth = "Bearer $credential")
+                }.results.map { it.toSummary() }
+            }
+        }
+
+    suspend fun getIndiaWatchProviders(mediaId: Long, mediaType: MediaType): Result<WatchProvidersRegion?> =
+        runTmdbCallWithFallback { credential, mode ->
+            when (mediaType) {
+                MediaType.MOVIE -> when (mode) {
+                    AuthMode.API_KEY -> apiService.getMovieWatchProviders(movieId = mediaId, apiKey = credential)
+                    AuthMode.BEARER_TOKEN -> apiService.getMovieWatchProviders(movieId = mediaId, bearerAuth = "Bearer $credential")
+                }
+                MediaType.TV -> when (mode) {
+                    AuthMode.API_KEY -> apiService.getTvWatchProviders(tvId = mediaId, apiKey = credential)
+                    AuthMode.BEARER_TOKEN -> apiService.getTvWatchProviders(tvId = mediaId, bearerAuth = "Bearer $credential")
+                }
+            }.toIndiaProviders()
         }
 
     private suspend fun <T> runTmdbCallWithFallback(

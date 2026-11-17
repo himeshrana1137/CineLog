@@ -11,6 +11,7 @@ interface TmdbApiService {
         @Query("query") query: String,
         @Query("api_key") apiKey: String? = null,
         @Header("Authorization") bearerAuth: String? = null,
+        @Query("year") year: Int? = null,
         @Query("include_adult") includeAdult: Boolean = false,
         @Query("language") language: String = "en-US",
         @Query("page") page: Int = 1,
@@ -33,11 +34,44 @@ interface TmdbApiService {
         @Query("language") language: String = "en-US",
     ): TmdbMovieDetailDto
 
+    @GET("movie/{movie_id}/images")
+    suspend fun getMovieImages(
+        @Path("movie_id") movieId: Long,
+        @Query("api_key") apiKey: String? = null,
+        @Header("Authorization") bearerAuth: String? = null,
+        @Query("include_image_language") includeImageLanguage: String = "en,null,hi",
+    ): TmdbImagesResponse
+
+    @GET("movie/{movie_id}/videos")
+    suspend fun getMovieVideos(
+        @Path("movie_id") movieId: Long,
+        @Query("api_key") apiKey: String? = null,
+        @Header("Authorization") bearerAuth: String? = null,
+        @Query("language") language: String = "en-US",
+    ): TmdbVideosResponse
+
+    @GET("movie/{movie_id}/recommendations")
+    suspend fun getMovieRecommendations(
+        @Path("movie_id") movieId: Long,
+        @Query("api_key") apiKey: String? = null,
+        @Header("Authorization") bearerAuth: String? = null,
+        @Query("language") language: String = "en-US",
+        @Query("page") page: Int = 1,
+    ): TmdbSearchResponse
+
+    @GET("movie/{movie_id}/watch/providers")
+    suspend fun getMovieWatchProviders(
+        @Path("movie_id") movieId: Long,
+        @Query("api_key") apiKey: String? = null,
+        @Header("Authorization") bearerAuth: String? = null,
+    ): TmdbWatchProvidersResponse
+
     @GET("search/tv")
     suspend fun searchTvShows(
         @Query("query") query: String,
         @Query("api_key") apiKey: String? = null,
         @Header("Authorization") bearerAuth: String? = null,
+        @Query("first_air_date_year") firstAirDateYear: Int? = null,
         @Query("include_adult") includeAdult: Boolean = false,
         @Query("language") language: String = "en-US",
         @Query("page") page: Int = 1,
@@ -59,4 +93,36 @@ interface TmdbApiService {
         @Query("append_to_response") appendToResponse: String = "credits",
         @Query("language") language: String = "en-US",
     ): TmdbTvDetailDto
+
+    @GET("tv/{tv_id}/images")
+    suspend fun getTvImages(
+        @Path("tv_id") tvId: Long,
+        @Query("api_key") apiKey: String? = null,
+        @Header("Authorization") bearerAuth: String? = null,
+        @Query("include_image_language") includeImageLanguage: String = "en,null,hi",
+    ): TmdbImagesResponse
+
+    @GET("tv/{tv_id}/videos")
+    suspend fun getTvVideos(
+        @Path("tv_id") tvId: Long,
+        @Query("api_key") apiKey: String? = null,
+        @Header("Authorization") bearerAuth: String? = null,
+        @Query("language") language: String = "en-US",
+    ): TmdbVideosResponse
+
+    @GET("tv/{tv_id}/recommendations")
+    suspend fun getTvRecommendations(
+        @Path("tv_id") tvId: Long,
+        @Query("api_key") apiKey: String? = null,
+        @Header("Authorization") bearerAuth: String? = null,
+        @Query("language") language: String = "en-US",
+        @Query("page") page: Int = 1,
+    ): TmdbTvSearchResponse
+
+    @GET("tv/{tv_id}/watch/providers")
+    suspend fun getTvWatchProviders(
+        @Path("tv_id") tvId: Long,
+        @Query("api_key") apiKey: String? = null,
+        @Header("Authorization") bearerAuth: String? = null,
+    ): TmdbWatchProvidersResponse
 }
