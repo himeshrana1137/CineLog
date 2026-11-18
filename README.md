@@ -431,8 +431,8 @@ Distributed under the **MIT License**. See [LICENSE](LICENSE) for details.
 
 **Himesh Rana**
 - GitHub: [@himeshrana1137](https://github.com/himeshrana1137)
-- LinkedIn: [linkedin.com/in/himeshrana](https://linkedin.com) *(Update with your personal profile)*
-- Email: `himeshrana1137@example.com` *(Update with your contact email)*
+- LinkedIn: [linkedin.com/in/himeshrana](https://linkedin.com) 
+- Email: `himeshrana1137@gmail.com`
 
 ---
 
