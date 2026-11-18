@@ -21,15 +21,15 @@ import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.aspectRatio
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyRow
@@ -37,19 +37,25 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.automirrored.rounded.Logout
 import androidx.compose.material.icons.automirrored.rounded.PlaylistAdd
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Bookmark
 import androidx.compose.material.icons.rounded.BookmarkBorder
 import androidx.compose.material.icons.rounded.Check
+import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.CloudOff
 import androidx.compose.material.icons.rounded.ExpandLess
 import androidx.compose.material.icons.rounded.ExpandMore
 import androidx.compose.material.icons.rounded.Language
 import androidx.compose.material.icons.rounded.Movie
 import androidx.compose.material.icons.rounded.Person
+import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material.icons.rounded.Star
 import androidx.compose.material.icons.rounded.StarBorder
@@ -69,9 +75,13 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TooltipBox
 import androidx.compose.material3.TooltipDefaults
+import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.material3.TopAppBarScrollBehavior
 import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.material3.rememberTooltipState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -80,19 +90,25 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import coil.compose.AsyncImagePainter
 import coil.request.ImageRequest
@@ -102,6 +118,7 @@ import com.example.data.model.LanguageChipCount
 import com.example.data.model.MovieSummary
 import com.example.data.model.WatchProvidersRegion
 import com.example.ui.theme.CineCharcoal
+import com.example.ui.theme.CineDisplayFont
 import com.example.ui.theme.CineElevated
 import com.example.ui.theme.CineEmerald
 import com.example.ui.theme.CineEmeraldContainer
@@ -151,52 +168,166 @@ fun OfflineModeBanner(
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun CineTopNavbar(
     userName: String,
     userPhotoUrl: String?,
+    isSearchExpanded: Boolean,
+    searchQuery: String,
+    searchPlaceholder: String,
+    searchTestTag: String,
+    hasActiveSearchQuery: Boolean = searchQuery.isNotBlank(),
+    scrollBehavior: TopAppBarScrollBehavior? = null,
+    onSearchIconClick: () -> Unit,
+    onCollapseSearch: () -> Unit,
+    onSearchQueryChange: (String) -> Unit,
     onOpenSettings: () -> Unit,
     onLogoutClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     var menuExpanded by remember { mutableStateOf(false) }
-    val initial = userName.trim().firstOrNull()?.uppercase() ?: "U"
+    val focusRequester = remember { FocusRequester() }
+    val focusManager = LocalFocusManager.current
 
-    Surface(
-        color = MaterialTheme.colorScheme.background.copy(alpha = 0.96f),
-        modifier = modifier.fillMaxWidth(),
-    ) {
-        Row(
-            modifier = Modifier
-                .statusBarsPadding()
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 10.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween,
-        ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-            ) {
-                Surface(
-                    color = MaterialTheme.colorScheme.primary,
-                    shape = RoundedCornerShape(10.dp),
-                    modifier = Modifier.size(36.dp),
+    LaunchedEffect(isSearchExpanded) {
+        if (isSearchExpanded) {
+            focusRequester.requestFocus()
+        }
+    }
+
+    TopAppBar(
+        expandedHeight = 56.dp,
+        windowInsets = WindowInsets.statusBars,
+        scrollBehavior = scrollBehavior,
+        colors = TopAppBarDefaults.topAppBarColors(
+            containerColor = MaterialTheme.colorScheme.background.copy(alpha = 0.97f),
+            scrolledContainerColor = CineCharcoal,
+            titleContentColor = MaterialTheme.colorScheme.onBackground,
+            navigationIconContentColor = MaterialTheme.colorScheme.onBackground,
+            actionIconContentColor = MaterialTheme.colorScheme.onBackground,
+        ),
+        navigationIcon = {
+            if (isSearchExpanded) {
+                IconButton(
+                    onClick = {
+                        focusManager.clearFocus()
+                        onCollapseSearch()
+                    },
+                    modifier = Modifier
+                        .minimumInteractiveComponentSize()
+                        .testTag("collapse_search_button"),
                 ) {
-                    Box(contentAlignment = Alignment.Center) {
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Rounded.ArrowBack,
+                        contentDescription = "Close search",
+                    )
+                }
+            }
+        },
+        title = {
+            if (isSearchExpanded) {
+                Surface(
+                    color = CineElevated,
+                    shape = RoundedCornerShape(12.dp),
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.55f)),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(40.dp)
+                        .padding(end = 4.dp),
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(horizontal = 10.dp),
+                    ) {
                         Icon(
-                            imageVector = Icons.Rounded.Movie,
-                            contentDescription = "CineLog Logo",
-                            tint = MaterialTheme.colorScheme.onPrimary,
-                            modifier = Modifier.size(20.dp),
+                            imageVector = Icons.Rounded.Search,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(18.dp),
                         )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Box(
+                            contentAlignment = Alignment.CenterStart,
+                            modifier = Modifier.weight(1f),
+                        ) {
+                            if (searchQuery.isEmpty()) {
+                                Text(
+                                    text = searchPlaceholder,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                            }
+                            BasicTextField(
+                                value = searchQuery,
+                                onValueChange = onSearchQueryChange,
+                                singleLine = true,
+                                textStyle = MaterialTheme.typography.bodyLarge.copy(
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                ),
+                                cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+                                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                                keyboardActions = KeyboardActions(
+                                    onSearch = { focusManager.clearFocus() }
+                                ),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .focusRequester(focusRequester)
+                                    .testTag(searchTestTag),
+                            )
+                        }
+                        if (searchQuery.isNotEmpty()) {
+                            Box(
+                                contentAlignment = Alignment.Center,
+                                modifier = Modifier
+                                    .size(32.dp)
+                                    .clip(CircleShape)
+                                    .clickable { onSearchQueryChange("") }
+                                    .testTag("clear_search_button"),
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Rounded.Close,
+                                    contentDescription = stringResource(R.string.clear_search),
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.size(18.dp),
+                                )
+                            }
+                        }
                     }
                 }
-                Text(
-                    text = "CINELOG",
-                    style = MaterialTheme.typography.headlineLarge,
-                    color = MaterialTheme.colorScheme.onBackground,
+            } else {
+                CineLogLogo(
+                    size = 28.dp,
+                    showWordmark = true,
+                    animated = false,
+                    wordmarkFontSize = 20.sp,
+                    layout = CineLogLogoLayout.Horizontal,
+                    modifier = Modifier.testTag("top_bar_logo"),
                 )
+            }
+        },
+        actions = {
+            if (!isSearchExpanded) {
+                IconButton(
+                    onClick = onSearchIconClick,
+                    modifier = Modifier
+                        .minimumInteractiveComponentSize()
+                        .testTag("top_search_button"),
+                ) {
+                    Icon(
+                        imageVector = Icons.Rounded.Search,
+                        contentDescription = "Search",
+                        tint = if (hasActiveSearchQuery) {
+                            MaterialTheme.colorScheme.primary
+                        } else {
+                            MaterialTheme.colorScheme.onBackground
+                        },
+                    )
+                }
             }
 
             Box {
@@ -211,7 +342,7 @@ fun CineTopNavbar(
                     UserProfileAvatar(
                         userName = userName,
                         userPhotoUrl = userPhotoUrl,
-                        size = 38.dp,
+                        size = 34.dp,
                     )
                 }
 
@@ -264,8 +395,9 @@ fun CineTopNavbar(
                     )
                 }
             }
-        }
-    }
+        },
+        modifier = modifier,
+    )
 }
 
 fun formatGoogleProfilePhotoUrl(rawUrl: String?): String? {
@@ -530,6 +662,7 @@ fun DiscoverMovieCard(
     onToggleWatched: () -> Unit,
     onToggleWatchlist: () -> Unit,
     onAddToList: (() -> Unit)? = null,
+    compact: Boolean = false,
     modifier: Modifier = Modifier,
 ) {
     Surface(
@@ -565,7 +698,7 @@ fun DiscoverMovieCard(
                     Column(
                         modifier = Modifier
                             .fillMaxSize()
-                            .padding(12.dp),
+                            .padding(10.dp),
                         horizontalAlignment = Alignment.CenterHorizontally,
                         verticalArrangement = Arrangement.Center,
                     ) {
@@ -573,7 +706,7 @@ fun DiscoverMovieCard(
                             imageVector = Icons.Rounded.Movie,
                             contentDescription = null,
                             tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.size(36.dp),
+                            modifier = Modifier.size(if (compact) 28.dp else 36.dp),
                         )
                         Spacer(modifier = Modifier.height(6.dp))
                         Text(
@@ -590,7 +723,7 @@ fun DiscoverMovieCard(
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(74.dp)
+                        .height(if (compact) 56.dp else 74.dp)
                         .align(Alignment.BottomCenter)
                         .background(
                             Brush.verticalGradient(
@@ -599,6 +732,7 @@ fun DiscoverMovieCard(
                         )
                 )
 
+                val badgePadding = if (compact) 6.dp else 8.dp
                 // Top-left: Language badge
                 val langBadge = movie.languageName
                 if (langBadge.isNotBlank()) {
@@ -607,14 +741,14 @@ fun DiscoverMovieCard(
                         shape = RoundedCornerShape(6.dp),
                         modifier = Modifier
                             .align(Alignment.TopStart)
-                            .padding(8.dp),
+                            .padding(badgePadding),
                     ) {
                         Text(
                             text = langBadge,
                             style = MaterialTheme.typography.labelMedium,
                             color = MaterialTheme.colorScheme.onSurface,
                             maxLines = 1,
-                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp),
+                            modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp),
                         )
                     }
                 }
@@ -623,13 +757,13 @@ fun DiscoverMovieCard(
                 if (isWatched && userRating > 0) {
                     Surface(
                         color = CineGold,
-                        shape = RoundedCornerShape(8.dp),
+                        shape = RoundedCornerShape(7.dp),
                         modifier = Modifier
                             .align(Alignment.TopEnd)
-                            .padding(8.dp),
+                            .padding(badgePadding),
                     ) {
                         Row(
-                            modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp),
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(2.dp),
                         ) {
@@ -637,7 +771,7 @@ fun DiscoverMovieCard(
                                 imageVector = Icons.Rounded.Star,
                                 contentDescription = null,
                                 tint = CineObsidian,
-                                modifier = Modifier.size(12.dp),
+                                modifier = Modifier.size(11.dp),
                             )
                             Text(
                                 text = "$userRating",
@@ -650,13 +784,13 @@ fun DiscoverMovieCard(
                 } else {
                     Surface(
                         color = CineObsidian.copy(alpha = 0.84f),
-                        shape = RoundedCornerShape(8.dp),
+                        shape = RoundedCornerShape(7.dp),
                         modifier = Modifier
                             .align(Alignment.TopEnd)
-                            .padding(8.dp),
+                            .padding(badgePadding),
                     ) {
                         Row(
-                            modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp),
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(3.dp),
                         ) {
@@ -664,7 +798,7 @@ fun DiscoverMovieCard(
                                 imageVector = Icons.Rounded.Star,
                                 contentDescription = null,
                                 tint = CineGold,
-                                modifier = Modifier.size(12.dp),
+                                modifier = Modifier.size(11.dp),
                             )
                             Text(
                                 text = String.format(Locale.US, "%.1f", movie.rating),
@@ -686,7 +820,7 @@ fun DiscoverMovieCard(
                     shape = RoundedCornerShape(6.dp),
                     modifier = Modifier
                         .align(Alignment.BottomStart)
-                        .padding(8.dp),
+                        .padding(badgePadding),
                 ) {
                     Text(
                         text = if (movie.isTv) "TV" else "Movie",
@@ -697,13 +831,13 @@ fun DiscoverMovieCard(
                             MaterialTheme.colorScheme.onSurface
                         },
                         fontWeight = FontWeight.Bold,
-                        modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp),
+                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
                     )
                 }
 
                 // Bottom-right: OTT provider mini logos (India)
                 val badgeProviders = providers?.badgeProviders.orEmpty()
-                if (badgeProviders.isNotEmpty()) {
+                if (badgeProviders.isNotEmpty() && !compact) {
                     Row(
                         modifier = Modifier
                             .align(Alignment.BottomEnd)
@@ -728,108 +862,107 @@ fun DiscoverMovieCard(
                 }
             }
 
-            Column(
-                modifier = Modifier
-                    .padding(10.dp)
-                    .clipToBounds(),
-                verticalArrangement = Arrangement.spacedBy(4.dp),
-            ) {
-                Text(
-                    text = movie.title,
-                    style = MaterialTheme.typography.titleMedium,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    minLines = 2,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                Text(
-                    text = "${movie.releaseYear} • ${if (movie.isTv) "TV Series" else "Movie"}",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-
-                Spacer(modifier = Modifier.height(2.dp))
-
-                // Primary full-width Watched CTA (no clipping/ellipsis)
-                Button(
-                    onClick = onToggleWatched,
-                    enabled = !isToggling,
-                    shape = RoundedCornerShape(10.dp),
-                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = if (isWatched) CineEmeraldContainer else MaterialTheme.colorScheme.primary,
-                        contentColor = if (isWatched) CineEmerald else MaterialTheme.colorScheme.onPrimary,
-                    ),
+            if (compact) {
+                // Compact single-action-row footer for horizontal carousels (130-140dp wide)
+                Column(
                     modifier = Modifier
-                        .fillMaxWidth()
-                        .height(48.dp)
-                        .testTag("toggle_watched_button_${movie.uniqueKey}"),
+                        .padding(horizontal = 8.dp, vertical = 6.dp)
+                        .clipToBounds(),
+                    verticalArrangement = Arrangement.spacedBy(2.dp),
                 ) {
-                    if (isToggling) {
-                        CircularProgressIndicator(
-                            modifier = Modifier.size(16.dp),
-                            strokeWidth = 2.dp,
-                            color = if (isWatched) CineEmerald else MaterialTheme.colorScheme.onPrimary,
-                        )
-                    } else {
-                        Icon(
-                            imageVector = if (isWatched) Icons.Rounded.Check else Icons.Rounded.Add,
-                            contentDescription = null,
-                            modifier = Modifier.size(16.dp),
-                        )
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text(
-                            text = if (isWatched) stringResource(R.string.watched_badge) else "Watched",
-                            style = MaterialTheme.typography.labelLarge,
-                            fontWeight = FontWeight.Bold,
-                            maxLines = 1,
-                            softWrap = false,
-                        )
-                    }
-                }
-
-                // Secondary compact icon buttons row (Watchlist + Add to list)
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    val watchlistLabel = if (isInWatchlist) {
-                        stringResource(R.string.in_watchlist)
-                    } else {
-                        stringResource(R.string.add_to_watchlist)
-                    }
-                    TooltipBox(
-                        positionProvider = TooltipDefaults.rememberPlainTooltipPositionProvider(),
-                        tooltip = { PlainTooltip { Text(watchlistLabel) } },
-                        state = rememberTooltipState(),
-                        modifier = Modifier.weight(1f),
+                    Text(
+                        text = movie.title,
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        lineHeight = 16.sp,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        minLines = 2,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    Text(
+                        text = "${movie.releaseYear} • ${if (movie.isTv) "TV" else "Movie"}",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Box(
                             contentAlignment = Alignment.Center,
                             modifier = Modifier
-                                .fillMaxWidth()
+                                .weight(1f)
                                 .heightIn(min = 48.dp)
+                                .clickable(enabled = !isToggling, onClick = onToggleWatched)
+                                .testTag("toggle_watched_button_${movie.uniqueKey}"),
+                        ) {
+                            Surface(
+                                color = if (isWatched) CineEmeraldContainer else MaterialTheme.colorScheme.primary,
+                                contentColor = if (isWatched) CineEmerald else MaterialTheme.colorScheme.onPrimary,
+                                shape = RoundedCornerShape(8.dp),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(34.dp),
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 6.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.Center,
+                                ) {
+                                    if (isToggling) {
+                                        CircularProgressIndicator(
+                                            modifier = Modifier.size(14.dp),
+                                            strokeWidth = 2.dp,
+                                            color = if (isWatched) CineEmerald else MaterialTheme.colorScheme.onPrimary,
+                                        )
+                                    } else {
+                                        Icon(
+                                            imageVector = if (isWatched) Icons.Rounded.Check else Icons.Rounded.Add,
+                                            contentDescription = null,
+                                            modifier = Modifier.size(14.dp),
+                                        )
+                                        Spacer(modifier = Modifier.width(2.dp))
+                                        Text(
+                                            text = if (isWatched) "Watched" else "Watch",
+                                            style = MaterialTheme.typography.labelMedium,
+                                            fontWeight = FontWeight.Bold,
+                                            maxLines = 1,
+                                            softWrap = false,
+                                        )
+                                    }
+                                }
+                            }
+                        }
+
+                        val watchlistLabel = if (isInWatchlist) {
+                            stringResource(R.string.in_watchlist)
+                        } else {
+                            stringResource(R.string.add_to_watchlist)
+                        }
+                        Box(
+                            contentAlignment = Alignment.Center,
+                            modifier = Modifier
+                                .size(48.dp)
                                 .clickable(enabled = !isWatchlistToggling, onClick = onToggleWatchlist)
                                 .testTag("toggle_watchlist_button_${movie.uniqueKey}"),
                         ) {
                             Surface(
                                 color = if (isInWatchlist) MaterialTheme.colorScheme.primaryContainer else CineElevated,
-                                shape = RoundedCornerShape(10.dp),
+                                shape = RoundedCornerShape(8.dp),
                                 border = BorderStroke(
                                     1.dp,
                                     if (isInWatchlist) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline
                                 ),
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .height(40.dp),
+                                modifier = Modifier.size(34.dp),
                             ) {
                                 Box(contentAlignment = Alignment.Center) {
                                     if (isWatchlistToggling) {
                                         CircularProgressIndicator(
-                                            modifier = Modifier.size(16.dp),
+                                            modifier = Modifier.size(14.dp),
                                             strokeWidth = 2.dp,
                                         )
                                     } else {
@@ -837,19 +970,91 @@ fun DiscoverMovieCard(
                                             imageVector = if (isInWatchlist) Icons.Rounded.Bookmark else Icons.Rounded.BookmarkBorder,
                                             contentDescription = watchlistLabel,
                                             tint = if (isInWatchlist) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-                                            modifier = Modifier.size(19.dp),
+                                            modifier = Modifier.size(17.dp),
                                         )
                                     }
                                 }
                             }
                         }
                     }
+                }
+            } else {
+                Column(
+                    modifier = Modifier
+                        .padding(10.dp)
+                        .clipToBounds(),
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
+                    Text(
+                        text = movie.title,
+                        style = MaterialTheme.typography.titleMedium,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        minLines = 2,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    Text(
+                        text = "${movie.releaseYear} • ${if (movie.isTv) "TV Series" else "Movie"}",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
 
-                    if (onAddToList != null) {
-                        val addToListDesc = "Add ${movie.title} to custom list"
+                    Spacer(modifier = Modifier.height(2.dp))
+
+                    // Primary full-width Watched CTA (no clipping/ellipsis)
+                    Button(
+                        onClick = onToggleWatched,
+                        enabled = !isToggling,
+                        shape = RoundedCornerShape(10.dp),
+                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = if (isWatched) CineEmeraldContainer else MaterialTheme.colorScheme.primary,
+                            contentColor = if (isWatched) CineEmerald else MaterialTheme.colorScheme.onPrimary,
+                        ),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(48.dp)
+                            .testTag("toggle_watched_button_${movie.uniqueKey}"),
+                    ) {
+                        if (isToggling) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(16.dp),
+                                strokeWidth = 2.dp,
+                                color = if (isWatched) CineEmerald else MaterialTheme.colorScheme.onPrimary,
+                            )
+                        } else {
+                            Icon(
+                                imageVector = if (isWatched) Icons.Rounded.Check else Icons.Rounded.Add,
+                                contentDescription = null,
+                                modifier = Modifier.size(16.dp),
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(
+                                text = if (isWatched) stringResource(R.string.watched_badge) else "Watched",
+                                style = MaterialTheme.typography.labelLarge,
+                                fontWeight = FontWeight.Bold,
+                                maxLines = 1,
+                                softWrap = false,
+                            )
+                        }
+                    }
+
+                    // Secondary compact icon buttons row (Watchlist + Add to list)
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        val watchlistLabel = if (isInWatchlist) {
+                            stringResource(R.string.in_watchlist)
+                        } else {
+                            stringResource(R.string.add_to_watchlist)
+                        }
                         TooltipBox(
                             positionProvider = TooltipDefaults.rememberPlainTooltipPositionProvider(),
-                            tooltip = { PlainTooltip { Text("Add to list") } },
+                            tooltip = { PlainTooltip { Text(watchlistLabel) } },
                             state = rememberTooltipState(),
                             modifier = Modifier.weight(1f),
                         ) {
@@ -858,24 +1063,71 @@ fun DiscoverMovieCard(
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .heightIn(min = 48.dp)
-                                    .clickable(onClick = onAddToList)
-                                    .testTag("add_to_list_button_${movie.uniqueKey}"),
+                                    .clickable(enabled = !isWatchlistToggling, onClick = onToggleWatchlist)
+                                    .testTag("toggle_watchlist_button_${movie.uniqueKey}"),
                             ) {
                                 Surface(
-                                    color = CineElevated,
+                                    color = if (isInWatchlist) MaterialTheme.colorScheme.primaryContainer else CineElevated,
                                     shape = RoundedCornerShape(10.dp),
-                                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
+                                    border = BorderStroke(
+                                        1.dp,
+                                        if (isInWatchlist) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline
+                                    ),
                                     modifier = Modifier
                                         .fillMaxWidth()
                                         .height(40.dp),
                                 ) {
                                     Box(contentAlignment = Alignment.Center) {
-                                        Icon(
-                                            imageVector = Icons.AutoMirrored.Rounded.PlaylistAdd,
-                                            contentDescription = addToListDesc,
-                                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                            modifier = Modifier.size(19.dp),
-                                        )
+                                        if (isWatchlistToggling) {
+                                            CircularProgressIndicator(
+                                                modifier = Modifier.size(16.dp),
+                                                strokeWidth = 2.dp,
+                                            )
+                                        } else {
+                                            Icon(
+                                                imageVector = if (isInWatchlist) Icons.Rounded.Bookmark else Icons.Rounded.BookmarkBorder,
+                                                contentDescription = watchlistLabel,
+                                                tint = if (isInWatchlist) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                                                modifier = Modifier.size(19.dp),
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        if (onAddToList != null) {
+                            val addToListDesc = "Add ${movie.title} to custom list"
+                            TooltipBox(
+                                positionProvider = TooltipDefaults.rememberPlainTooltipPositionProvider(),
+                                tooltip = { PlainTooltip { Text("Add to list") } },
+                                state = rememberTooltipState(),
+                                modifier = Modifier.weight(1f),
+                            ) {
+                                Box(
+                                    contentAlignment = Alignment.Center,
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .heightIn(min = 48.dp)
+                                        .clickable(onClick = onAddToList)
+                                        .testTag("add_to_list_button_${movie.uniqueKey}"),
+                                ) {
+                                    Surface(
+                                        color = CineElevated,
+                                        shape = RoundedCornerShape(10.dp),
+                                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .height(40.dp),
+                                    ) {
+                                        Box(contentAlignment = Alignment.Center) {
+                                            Icon(
+                                                imageVector = Icons.AutoMirrored.Rounded.PlaylistAdd,
+                                                contentDescription = addToListDesc,
+                                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                modifier = Modifier.size(19.dp),
+                                            )
+                                        }
                                     }
                                 }
                             }

@@ -10,9 +10,11 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -56,9 +58,6 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.OutlinedTextFieldDefaults
-import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -147,12 +146,20 @@ fun WatchedScreen(
         count
     }
 
-    Column(modifier = modifier.fillMaxSize()) {
+    val navBarBottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+    val listBottomPadding = 84.dp + navBarBottom
+
+    Box(modifier = modifier.fillMaxSize()) {
         when (watchedState) {
             is WatchedUiState.Loading -> {
                 LazyVerticalGrid(
                     columns = GridCells.Fixed(columnsCount),
-                    contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 96.dp),
+                    contentPadding = PaddingValues(
+                        start = 16.dp,
+                        end = 16.dp,
+                        top = 8.dp,
+                        bottom = listBottomPadding,
+                    ),
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp),
                     modifier = Modifier.fillMaxSize(),
@@ -189,323 +196,211 @@ fun WatchedScreen(
                         String.format(Locale.US, "%.1f", rated.map { it.userRating }.average())
                     } else "—"
 
-                    Scaffold(
-                        containerColor = Color.Transparent,
-                        contentWindowInsets = WindowInsets(0, 0, 0, 0),
-                        topBar = {
-                            Column(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .background(MaterialTheme.colorScheme.background)
-                                    .padding(top = 6.dp, bottom = 8.dp),
-                                verticalArrangement = Arrangement.spacedBy(8.dp),
-                            ) {
-                                // Sub-tabs: Watched List | Watch Diary (with end contentPadding + fade)
-                                val subTabsState = rememberLazyListState()
-                                Box(modifier = Modifier.fillMaxWidth()) {
-                                    LazyRow(
-                                        state = subTabsState,
-                                        contentPadding = PaddingValues(horizontal = 16.dp),
-                                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                    ) {
-                                        items(WatchedSubTab.entries, key = { it.name }) { tab ->
-                                            FilterChip(
-                                                selected = watchedSubTab == tab,
-                                                onClick = { onSelectSubTab(tab) },
-                                                label = {
-                                                    Text(
-                                                        text = tab.label,
-                                                        fontWeight = FontWeight.SemiBold,
-                                                        maxLines = 1,
-                                                        softWrap = false,
-                                                    )
-                                                },
-                                                leadingIcon = {
-                                                    Icon(
-                                                        imageVector = if (tab == WatchedSubTab.LIST) {
-                                                            Icons.Rounded.Movie
-                                                        } else {
-                                                            Icons.Rounded.CalendarMonth
-                                                        },
-                                                        contentDescription = null,
-                                                        modifier = Modifier.size(16.dp),
-                                                    )
-                                                },
-                                                colors = FilterChipDefaults.filterChipColors(
-                                                    selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
-                                                    selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                                                ),
-                                                modifier = Modifier.testTag("watched_subtab_${tab.name.lowercase()}"),
-                                            )
-                                        }
-                                    }
-                                    if (subTabsState.canScrollForward) {
-                                        Box(
-                                            modifier = Modifier
-                                                .align(Alignment.CenterEnd)
-                                                .width(28.dp)
-                                                .height(40.dp)
-                                                .background(
-                                                    Brush.horizontalGradient(
-                                                        colors = listOf(Color.Transparent, MaterialTheme.colorScheme.background)
-                                                    )
-                                                )
-                                        )
-                                    }
+                    if (watchedSubTab == WatchedSubTab.DIARY) {
+                        WatchDiaryView(
+                            monthYm = diaryMonthYm,
+                            selectedDate = diarySelectedDate,
+                            diaryByDate = watchDiaryByDate,
+                            onChangeMonth = onChangeDiaryMonth,
+                            onSelectDate = onSelectDiaryDate,
+                            onMovieClick = onMovieClick,
+                            onLogRewatch = onLogRewatch,
+                            headerContent = {
+                                item(key = "diary_subtabs_row") {
+                                    WatchedSubTabsAndFiltersRow(
+                                        watchedSubTab = watchedSubTab,
+                                        activeFilterCount = activeFilterCount,
+                                        showFiltersButton = false,
+                                        onSelectSubTab = onSelectSubTab,
+                                        onOpenFilters = { showFiltersSheet = true },
+                                    )
                                 }
-
-                                // Compact Search Bar + Filters button row for List mode
-                                if (watchedSubTab == WatchedSubTab.LIST) {
-                                    Row(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .padding(horizontal = 16.dp),
-                                        horizontalArrangement = Arrangement.spacedBy(10.dp),
-                                        verticalAlignment = Alignment.CenterVertically,
-                                    ) {
-                                        OutlinedTextField(
-                                            value = watchedSearchQuery,
-                                            onValueChange = onWatchedSearchQueryChange,
-                                            singleLine = true,
-                                            placeholder = {
-                                                Text(
-                                                    text = "Search watched titles…",
-                                                    style = MaterialTheme.typography.bodyMedium,
-                                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                                    maxLines = 1,
-                                                    overflow = TextOverflow.Ellipsis,
-                                                )
-                                            },
-                                            leadingIcon = {
-                                                Icon(
-                                                    imageVector = Icons.Rounded.Search,
-                                                    contentDescription = null,
-                                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                                )
-                                            },
-                                            trailingIcon = {
-                                                if (watchedSearchQuery.isNotEmpty()) {
-                                                    IconButton(
-                                                        onClick = { onWatchedSearchQueryChange("") },
-                                                        modifier = Modifier.minimumInteractiveComponentSize(),
-                                                    ) {
-                                                        Icon(
-                                                            imageVector = Icons.Rounded.Close,
-                                                            contentDescription = "Clear search",
-                                                        )
-                                                    }
-                                                }
-                                            },
-                                            shape = RoundedCornerShape(12.dp),
-                                            colors = OutlinedTextFieldDefaults.colors(
-                                                focusedContainerColor = CineElevated,
-                                                unfocusedContainerColor = CineElevated,
-                                                focusedBorderColor = MaterialTheme.colorScheme.primary,
-                                                unfocusedBorderColor = MaterialTheme.colorScheme.outline,
-                                            ),
-                                            modifier = Modifier
-                                                .weight(1f)
-                                                .testTag("watched_filter_input"),
-                                        )
-
-                                        Surface(
-                                            onClick = { showFiltersSheet = true },
-                                            color = if (activeFilterCount > 0) {
-                                                MaterialTheme.colorScheme.primaryContainer
-                                            } else {
-                                                CineElevated
-                                            },
-                                            shape = RoundedCornerShape(12.dp),
-                                            border = BorderStroke(
-                                                1.dp,
-                                                if (activeFilterCount > 0) {
-                                                    MaterialTheme.colorScheme.primary
-                                                } else {
-                                                    MaterialTheme.colorScheme.outline
-                                                }
-                                            ),
-                                            modifier = Modifier
-                                                .height(52.dp)
-                                                .testTag("watched_filters_button"),
-                                        ) {
-                                            Row(
-                                                modifier = Modifier.padding(horizontal = 12.dp),
-                                                verticalAlignment = Alignment.CenterVertically,
-                                                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                                            ) {
-                                                Icon(
-                                                    imageVector = Icons.Rounded.Tune,
-                                                    contentDescription = "Open filters",
-                                                    tint = if (activeFilterCount > 0) {
-                                                        MaterialTheme.colorScheme.onPrimaryContainer
-                                                    } else {
-                                                        MaterialTheme.colorScheme.onSurface
-                                                    },
-                                                    modifier = Modifier.size(18.dp),
-                                                )
-                                                Text(
-                                                    text = "Filters",
-                                                    style = MaterialTheme.typography.labelLarge,
-                                                    color = if (activeFilterCount > 0) {
-                                                        MaterialTheme.colorScheme.onPrimaryContainer
-                                                    } else {
-                                                        MaterialTheme.colorScheme.onSurface
-                                                    },
-                                                    fontWeight = FontWeight.SemiBold,
-                                                    maxLines = 1,
-                                                    softWrap = false,
-                                                )
-                                                if (activeFilterCount > 0) {
-                                                    Badge(
-                                                        containerColor = MaterialTheme.colorScheme.primary,
-                                                        contentColor = MaterialTheme.colorScheme.onPrimary,
-                                                        modifier = Modifier.testTag("watched_active_filter_badge"),
-                                                    ) {
-                                                        Text(activeFilterCount.toString())
-                                                    }
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        },
-                    ) { innerPadding ->
-                        Box(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .padding(innerPadding),
-                        ) {
-                            if (watchedSubTab == WatchedSubTab.DIARY) {
-                                Column(modifier = Modifier.fillMaxSize()) {
+                                item(key = "diary_summary_header") {
                                     WatchedSummaryHeaderCard(
                                         totalWatched = watchedState.movies.size,
                                         moviesCount = moviesCount,
                                         tvCount = tvCount,
                                         avgPersonal = avgPersonal,
-                                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
-                                    )
-                                    WatchDiaryView(
-                                        monthYm = diaryMonthYm,
-                                        selectedDate = diarySelectedDate,
-                                        diaryByDate = watchDiaryByDate,
-                                        onChangeMonth = onChangeDiaryMonth,
-                                        onSelectDate = onSelectDiaryDate,
-                                        onMovieClick = onMovieClick,
-                                        onLogRewatch = onLogRewatch,
-                                        modifier = Modifier.weight(1f),
                                     )
                                 }
-                            } else {
-                                val gridCols = if (columnsCount >= 3) 2 else 1
-                                LazyVerticalGrid(
-                                    columns = GridCells.Fixed(gridCols),
-                                    contentPadding = PaddingValues(
-                                        start = 16.dp,
-                                        end = 16.dp,
-                                        top = 8.dp,
-                                        bottom = 96.dp,
-                                    ),
-                                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                                    verticalArrangement = Arrangement.spacedBy(12.dp),
-                                    modifier = Modifier.fillMaxSize(),
-                                ) {
-                                    // Scrollable Summary Header (scrolls away cleanly with the list)
-                                    item(
-                                        span = { GridItemSpan(maxLineSpan) },
-                                        key = "watched_summary_header",
-                                    ) {
-                                        WatchedSummaryHeaderCard(
-                                            totalWatched = watchedState.movies.size,
-                                            moviesCount = moviesCount,
-                                            tvCount = tvCount,
-                                            avgPersonal = avgPersonal,
-                                        )
-                                    }
+                            },
+                            modifier = Modifier.fillMaxSize(),
+                        )
+                    } else {
+                        val gridCols = if (columnsCount >= 3) 2 else 1
+                        LazyVerticalGrid(
+                            columns = GridCells.Fixed(gridCols),
+                            contentPadding = PaddingValues(
+                                start = 16.dp,
+                                end = 16.dp,
+                                top = 4.dp,
+                                bottom = listBottomPadding,
+                            ),
+                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                            verticalArrangement = Arrangement.spacedBy(10.dp),
+                            modifier = Modifier.fillMaxSize(),
+                        ) {
+                            // Sub-tabs + Filters button row inside scrollable list
+                            item(
+                                span = { GridItemSpan(maxLineSpan) },
+                                key = "watched_subtabs_row",
+                            ) {
+                                WatchedSubTabsAndFiltersRow(
+                                    watchedSubTab = watchedSubTab,
+                                    activeFilterCount = activeFilterCount,
+                                    showFiltersButton = true,
+                                    onSelectSubTab = onSelectSubTab,
+                                    onOpenFilters = { showFiltersSheet = true },
+                                )
+                            }
 
-                                    // Compact active filter indicator bar when filters are applied
-                                    if (activeFilterCount > 0) {
-                                        item(
-                                            span = { GridItemSpan(maxLineSpan) },
-                                            key = "watched_active_filters_bar",
+                            // Scrollable Summary Header (scrolls away cleanly with the list)
+                            item(
+                                span = { GridItemSpan(maxLineSpan) },
+                                key = "watched_summary_header",
+                            ) {
+                                WatchedSummaryHeaderCard(
+                                    totalWatched = watchedState.movies.size,
+                                    moviesCount = moviesCount,
+                                    tvCount = tvCount,
+                                    avgPersonal = avgPersonal,
+                                )
+                            }
+
+                            // Active top-bar search query banner if user is filtering by text
+                            if (watchedSearchQuery.isNotBlank()) {
+                                item(
+                                    span = { GridItemSpan(maxLineSpan) },
+                                    key = "watched_active_search_bar",
+                                ) {
+                                    Surface(
+                                        color = CineElevated,
+                                        shape = RoundedCornerShape(10.dp),
+                                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.5f)),
+                                        modifier = Modifier.fillMaxWidth(),
+                                    ) {
+                                        Row(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .padding(horizontal = 12.dp, vertical = 6.dp),
+                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                            verticalAlignment = Alignment.CenterVertically,
                                         ) {
-                                            Surface(
-                                                color = CineElevated,
-                                                shape = RoundedCornerShape(10.dp),
-                                                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
-                                                modifier = Modifier.fillMaxWidth(),
+                                            Row(
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                                modifier = Modifier.weight(1f),
                                             ) {
-                                                Row(
-                                                    modifier = Modifier
-                                                        .fillMaxWidth()
-                                                        .padding(horizontal = 12.dp, vertical = 6.dp),
-                                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                                    verticalAlignment = Alignment.CenterVertically,
-                                                ) {
-                                                    val parts = buildList {
-                                                        if (filterOption != WatchedFilterOption.ALL) add(filterOption.label)
-                                                        if (sortOption != WatchedSortOption.RECENT) add("Sort: ${sortOption.label}")
-                                                        if (selectedReaction.isNotBlank()) {
-                                                            QuickReaction.fromKey(selectedReaction)?.let { add("${it.emoji} ${it.label}") }
-                                                        }
-                                                        if (selectedLanguage != "all") {
-                                                            val langLabel = languageChips.firstOrNull {
-                                                                it.code.equals(selectedLanguage, ignoreCase = true)
-                                                            }?.label ?: selectedLanguage.uppercase()
-                                                            add(langLabel)
-                                                        }
-                                                    }
-                                                    Text(
-                                                        text = "${filteredMovies.size} shown • ${parts.joinToString(" • ")}",
-                                                        style = MaterialTheme.typography.labelMedium,
-                                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                                        maxLines = 1,
-                                                        overflow = TextOverflow.Ellipsis,
-                                                        modifier = Modifier.weight(1f),
-                                                    )
-                                                    TextButton(
-                                                        onClick = onResetFilters,
-                                                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
-                                                        modifier = Modifier.height(36.dp),
-                                                    ) {
-                                                        Text("Clear", fontWeight = FontWeight.Bold)
-                                                    }
-                                                }
+                                                Icon(
+                                                    imageVector = Icons.Rounded.Search,
+                                                    contentDescription = null,
+                                                    tint = MaterialTheme.colorScheme.primary,
+                                                    modifier = Modifier.size(16.dp),
+                                                )
+                                                Text(
+                                                    text = "Search: \"$watchedSearchQuery\" (${filteredMovies.size})",
+                                                    style = MaterialTheme.typography.labelLarge,
+                                                    color = MaterialTheme.colorScheme.onSurface,
+                                                    maxLines = 1,
+                                                    overflow = TextOverflow.Ellipsis,
+                                                )
+                                            }
+                                            TextButton(
+                                                onClick = { onWatchedSearchQueryChange("") },
+                                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
+                                                modifier = Modifier.height(36.dp),
+                                            ) {
+                                                Text("Clear", fontWeight = FontWeight.Bold)
                                             }
                                         }
                                     }
+                                }
+                            }
 
-                                    if (filteredMovies.isEmpty()) {
-                                        item(
-                                            span = { GridItemSpan(maxLineSpan) },
-                                            key = "watched_empty_filtered",
+                            // Compact active filter indicator bar when filters are applied
+                            if (activeFilterCount > 0) {
+                                item(
+                                    span = { GridItemSpan(maxLineSpan) },
+                                    key = "watched_active_filters_bar",
+                                ) {
+                                    Surface(
+                                        color = CineElevated,
+                                        shape = RoundedCornerShape(10.dp),
+                                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
+                                        modifier = Modifier.fillMaxWidth(),
+                                    ) {
+                                        Row(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .padding(horizontal = 12.dp, vertical = 6.dp),
+                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                            verticalAlignment = Alignment.CenterVertically,
                                         ) {
-                                            CineEmptyState(
-                                                title = "No matching watched titles",
-                                                subtitle = "Try clearing your filters or search text.",
-                                                actionLabel = "Reset Filters",
-                                                onActionClick = onResetFilters,
-                                                modifier = Modifier
-                                                    .fillMaxWidth()
-                                                    .padding(vertical = 24.dp),
+                                            val parts = buildList {
+                                                if (filterOption != WatchedFilterOption.ALL) add(filterOption.label)
+                                                if (sortOption != WatchedSortOption.RECENT) add("Sort: ${sortOption.label}")
+                                                if (selectedReaction.isNotBlank()) {
+                                                    QuickReaction.fromKey(selectedReaction)?.let { add("${it.emoji} ${it.label}") }
+                                                }
+                                                if (selectedLanguage != "all") {
+                                                    val langLabel = languageChips.firstOrNull {
+                                                        it.code.equals(selectedLanguage, ignoreCase = true)
+                                                    }?.label ?: selectedLanguage.uppercase()
+                                                    add(langLabel)
+                                                }
+                                            }
+                                            Text(
+                                                text = "${filteredMovies.size} shown • ${parts.joinToString(" • ")}",
+                                                style = MaterialTheme.typography.labelMedium,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis,
+                                                modifier = Modifier.weight(1f),
                                             )
-                                        }
-                                    } else {
-                                        items(
-                                            items = filteredMovies,
-                                            key = { it.uniqueKey },
-                                        ) { movie ->
-                                            WatchedMovieListCard(
-                                                movie = movie,
-                                                onClick = { onMovieClick(movie) },
-                                                onLogRewatch = { onLogRewatch(movie) },
-                                                onQuickReact = { reactionKey -> onQuickReact(movie, reactionKey) },
-                                                onAddToList = { onAddToList(movie) },
-                                                onShareCardClick = { onShareCardClick(movie) },
-                                                onRemoveClick = { onRemoveClick(movie) },
-                                            )
+                                            TextButton(
+                                                onClick = onResetFilters,
+                                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
+                                                modifier = Modifier.height(36.dp),
+                                            ) {
+                                                Text("Clear", fontWeight = FontWeight.Bold)
+                                            }
                                         }
                                     }
+                                }
+                            }
+
+                            if (filteredMovies.isEmpty()) {
+                                item(
+                                    span = { GridItemSpan(maxLineSpan) },
+                                    key = "watched_empty_filtered",
+                                ) {
+                                    CineEmptyState(
+                                        title = "No matching watched titles",
+                                        subtitle = "Try clearing your filters or search text.",
+                                        actionLabel = "Reset Filters",
+                                        onActionClick = {
+                                            onWatchedSearchQueryChange("")
+                                            onResetFilters()
+                                        },
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(vertical = 24.dp),
+                                    )
+                                }
+                            } else {
+                                items(
+                                    items = filteredMovies,
+                                    key = { it.uniqueKey },
+                                ) { movie ->
+                                    WatchedMovieListCard(
+                                        movie = movie,
+                                        onClick = { onMovieClick(movie) },
+                                        onLogRewatch = { onLogRewatch(movie) },
+                                        onQuickReact = { reactionKey -> onQuickReact(movie, reactionKey) },
+                                        onAddToList = { onAddToList(movie) },
+                                        onShareCardClick = { onShareCardClick(movie) },
+                                        onRemoveClick = { onRemoveClick(movie) },
+                                    )
                                 }
                             }
                         }
@@ -531,6 +426,115 @@ fun WatchedScreen(
                     }
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun WatchedSubTabsAndFiltersRow(
+    watchedSubTab: WatchedSubTab,
+    activeFilterCount: Int,
+    showFiltersButton: Boolean,
+    onSelectSubTab: (WatchedSubTab) -> Unit,
+    onOpenFilters: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val rowState = rememberLazyListState()
+    Box(modifier = modifier.fillMaxWidth()) {
+        LazyRow(
+            state = rowState,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            contentPadding = PaddingValues(end = 16.dp),
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            items(WatchedSubTab.entries, key = { it.name }) { tab ->
+                FilterChip(
+                    selected = watchedSubTab == tab,
+                    onClick = { onSelectSubTab(tab) },
+                    label = {
+                        Text(
+                            text = tab.label,
+                            fontWeight = FontWeight.SemiBold,
+                            maxLines = 1,
+                            softWrap = false,
+                        )
+                    },
+                    leadingIcon = {
+                        Icon(
+                            imageVector = if (tab == WatchedSubTab.LIST) {
+                                Icons.Rounded.Movie
+                            } else {
+                                Icons.Rounded.CalendarMonth
+                            },
+                            contentDescription = null,
+                            modifier = Modifier.size(16.dp),
+                        )
+                    },
+                    colors = FilterChipDefaults.filterChipColors(
+                        selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
+                        selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                    ),
+                    modifier = Modifier.testTag("watched_subtab_${tab.name.lowercase()}"),
+                )
+            }
+
+            if (showFiltersButton) {
+                item(key = "watched_filters_chip") {
+                    FilterChip(
+                        selected = activeFilterCount > 0,
+                        onClick = onOpenFilters,
+                        leadingIcon = {
+                            Icon(
+                                imageVector = Icons.Rounded.Tune,
+                                contentDescription = "Open filters",
+                                modifier = Modifier.size(16.dp),
+                            )
+                        },
+                        label = {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(5.dp),
+                            ) {
+                                Text(
+                                    text = "Filters",
+                                    fontWeight = FontWeight.SemiBold,
+                                    maxLines = 1,
+                                    softWrap = false,
+                                )
+                                if (activeFilterCount > 0) {
+                                    Badge(
+                                        containerColor = MaterialTheme.colorScheme.primary,
+                                        contentColor = MaterialTheme.colorScheme.onPrimary,
+                                        modifier = Modifier.testTag("watched_active_filter_badge"),
+                                    ) {
+                                        Text(activeFilterCount.toString())
+                                    }
+                                }
+                            }
+                        },
+                        colors = FilterChipDefaults.filterChipColors(
+                            selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
+                            selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                        ),
+                        modifier = Modifier.testTag("watched_filters_button"),
+                    )
+                }
+            }
+        }
+
+        if (rowState.canScrollForward) {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.CenterEnd)
+                    .width(24.dp)
+                    .height(40.dp)
+                    .background(
+                        Brush.horizontalGradient(
+                            colors = listOf(Color.Transparent, MaterialTheme.colorScheme.background)
+                        )
+                    )
+            )
         }
     }
 }

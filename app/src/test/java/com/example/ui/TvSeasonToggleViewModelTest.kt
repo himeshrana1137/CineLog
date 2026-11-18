@@ -59,6 +59,16 @@ class TvSeasonToggleViewModelTest : FirestoreEmulatorTestBase() {
             page: Int,
         ) = TmdbSearchResponse()
 
+        override suspend fun discoverMovies(
+            withCompanies: String,
+            sortBy: String,
+            page: Int,
+            includeAdult: Boolean,
+            language: String,
+            apiKey: String?,
+            bearerAuth: String?,
+        ) = TmdbSearchResponse()
+
         override suspend fun getMovieDetails(
             movieId: Long,
             apiKey: String?,

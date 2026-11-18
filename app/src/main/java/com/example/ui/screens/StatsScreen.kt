@@ -11,9 +11,12 @@ import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -55,8 +58,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
@@ -109,94 +110,98 @@ fun StatsScreen(
 
     var peopleTab by remember { mutableStateOf(PeopleStatTab.ACTORS) }
     val numFormat = remember { NumberFormat.getIntegerInstance(Locale.US) }
+    val navBarBottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+    val listBottomPadding = 84.dp + navBarBottom
 
-    Column(modifier = modifier.fillMaxSize()) {
-        // Segmented Filter Bar & Watched Pill
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .background(MaterialTheme.colorScheme.background)
-                .padding(horizontal = 16.dp, vertical = 10.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
-        ) {
-            Row(
+    LazyColumn(
+        modifier = modifier.fillMaxSize(),
+        contentPadding = PaddingValues(
+            start = 16.dp,
+            end = 16.dp,
+            top = 6.dp,
+            bottom = listBottomPadding,
+        ),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        // Scrollable Header + Segmented Filter Bar (scrolls away cleanly with charts)
+        item(key = "stats_header_and_filter") {
+            Column(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
+                verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
-                Text(
-                    text = "YOUR CINE STATS",
-                    style = MaterialTheme.typography.titleMedium,
-                    color = MaterialTheme.colorScheme.onBackground,
-                    fontWeight = FontWeight.Bold,
-                )
-                Surface(
-                    color = CineElevated,
-                    shape = RoundedCornerShape(50),
-                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
-                    modifier = Modifier.testTag("stats_watched_count_badge"),
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Text(
-                        text = stringResource(R.string.movies_watched_count, totalAllWatchedCount),
-                        style = MaterialTheme.typography.labelMedium,
-                        color = CineGold,
+                        text = "YOUR CINE STATS",
+                        style = MaterialTheme.typography.titleMedium,
+                        color = MaterialTheme.colorScheme.onBackground,
                         fontWeight = FontWeight.Bold,
-                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
                     )
+                    Surface(
+                        color = CineElevated,
+                        shape = RoundedCornerShape(50),
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
+                        modifier = Modifier.testTag("stats_watched_count_badge"),
+                    ) {
+                        Text(
+                            text = stringResource(R.string.movies_watched_count, totalAllWatchedCount),
+                            style = MaterialTheme.typography.labelMedium,
+                            color = CineGold,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+                        )
+                    }
                 }
-            }
 
-            SingleChoiceSegmentedButtonRow(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .testTag("stats_media_filter_row"),
-            ) {
-                StatsMediaFilter.entries.forEachIndexed { index, filter ->
-                    SegmentedButton(
-                        selected = selectedFilter == filter,
-                        onClick = { onFilterSelected(filter) },
-                        shape = SegmentedButtonDefaults.itemShape(
-                            index = index,
-                            count = StatsMediaFilter.entries.size,
-                        ),
-                        colors = SegmentedButtonDefaults.colors(
-                            activeContainerColor = MaterialTheme.colorScheme.primaryContainer,
-                            activeContentColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                            inactiveContainerColor = CineElevated,
-                            inactiveContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                        ),
-                        modifier = Modifier.testTag("stats_filter_${filter.name.lowercase()}"),
-                        label = {
-                            Text(
-                                text = filter.label,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                            )
-                        },
-                    )
+                SingleChoiceSegmentedButtonRow(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("stats_media_filter_row"),
+                ) {
+                    StatsMediaFilter.entries.forEachIndexed { index, filter ->
+                        SegmentedButton(
+                            selected = selectedFilter == filter,
+                            onClick = { onFilterSelected(filter) },
+                            shape = SegmentedButtonDefaults.itemShape(
+                                index = index,
+                                count = StatsMediaFilter.entries.size,
+                            ),
+                            colors = SegmentedButtonDefaults.colors(
+                                activeContainerColor = MaterialTheme.colorScheme.primaryContainer,
+                                activeContentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                                inactiveContainerColor = CineElevated,
+                                inactiveContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                            ),
+                            modifier = Modifier.testTag("stats_filter_${filter.name.lowercase()}"),
+                            label = {
+                                Text(
+                                    text = filter.label,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                            },
+                        )
+                    }
                 }
             }
         }
 
         if (stats.totalTitles == 0) {
-            CineEmptyState(
-                title = "No ${selectedFilter.pluralNoun.lowercase()} watched yet",
-                subtitle = "Log ${selectedFilter.pluralNoun.lowercase()} in Discover or switch the filter above to view your full stats.",
-                actionLabel = "Show All Titles",
-                onActionClick = { onFilterSelected(StatsMediaFilter.ALL) },
-                modifier = Modifier.fillMaxSize(),
-            )
-            return
-        }
-
-        Box(modifier = Modifier.fillMaxSize()) {
-            LazyColumn(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .navigationBarsPadding(),
-                contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 96.dp),
-                verticalArrangement = Arrangement.spacedBy(14.dp),
-            ) {
+            item(key = "stats_filtered_empty") {
+                CineEmptyState(
+                    title = "No ${selectedFilter.pluralNoun.lowercase()} watched yet",
+                    subtitle = "Log ${selectedFilter.pluralNoun.lowercase()} in Discover or switch the filter above to view your full stats.",
+                    actionLabel = "Show All Titles",
+                    onActionClick = { onFilterSelected(StatsMediaFilter.ALL) },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 24.dp),
+                )
+            }
+        } else {
         // 1. Watch-Time Calculator Hero Card
         item {
             Surface(
@@ -538,23 +543,6 @@ fun StatsScreen(
                 }
             }
         }
-            }
-
-            // Soft top fade overlay so scrolled cards blend seamlessly under the header
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(14.dp)
-                    .align(Alignment.TopCenter)
-                    .background(
-                        Brush.verticalGradient(
-                            colors = listOf(
-                                MaterialTheme.colorScheme.background,
-                                Color.Transparent,
-                            )
-                        )
-                    )
-            )
         }
     }
 }

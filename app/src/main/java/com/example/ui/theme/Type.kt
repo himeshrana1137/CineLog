@@ -12,6 +12,11 @@ val CineDisplayFont = FontFamily(
     Font(R.font.bebas_neue, FontWeight.Normal)
 )
 
+val CineBrandFont = FontFamily(
+    Font(R.font.outfit, FontWeight.Bold),
+    Font(R.font.outfit, FontWeight.ExtraBold),
+)
+
 val CineBodyFont = FontFamily(
     Font(R.font.plus_jakarta_sans, FontWeight.Normal)
 )

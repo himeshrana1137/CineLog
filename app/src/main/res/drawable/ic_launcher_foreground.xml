@@ -1,8 +1,61 @@
 <?xml version="1.0" encoding="utf-8"?>
-<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
-    <item
-        android:width="66dp"
-        android:height="66dp"
-        android:drawable="@drawable/cinelog_icon_fg"
-        android:gravity="center" />
-</layer-list>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- Rounded squircle (28% corner radius) filled with vertical gradient #FF2D3A -> #B0000F -->
+    <path android:pathData="M42.12,27h23.76a15.12,15.12 0 0 1 15.12,15.12v23.76a15.12,15.12 0 0 1 -15.12,15.12h-23.76a15.12,15.12 0 0 1 -15.12,-15.12v-23.76a15.12,15.12 0 0 1 15.12,-15.12z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:endX="54"
+                android:endY="81"
+                android:startX="54"
+                android:startY="27"
+                android:type="linear">
+                <item
+                    android:color="#FFFF2D3A"
+                    android:offset="0" />
+                <item
+                    android:color="#FFB0000F"
+                    android:offset="1" />
+            </gradient>
+        </aapt:attr>
+    </path>
+
+    <!-- Subtle top-edge inner highlight -->
+    <path
+        android:pathData="M42.12,27.6h23.76a14.52,14.52 0 0 1 14.52,14.52v23.76a14.52,14.52 0 0 1 -14.52,14.52h-23.76a14.52,14.52 0 0 1 -14.52,-14.52v-23.76a14.52,14.52 0 0 1 14.52,-14.52z"
+        android:strokeWidth="1.2">
+        <aapt:attr name="android:strokeColor">
+            <gradient
+                android:endX="54"
+                android:endY="52"
+                android:startX="54"
+                android:startY="27.6"
+                android:type="linear">
+                <item
+                    android:color="#61FFFFFF"
+                    android:offset="0" />
+                <item
+                    android:color="#00FFFFFF"
+                    android:offset="1" />
+            </gradient>
+        </aapt:attr>
+    </path>
+
+    <!-- Rounded white play triangle with lower-right circular notch cutout -->
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M43.74,43.47Q43.74,40.50 46.33,41.96L63.83,52.00Q66.42,53.46 63.83,54.92L62.49,55.70A7.83,7.83 0 0 0 51.04,62.25L46.33,64.96Q43.74,66.42 43.74,63.45Z" />
+
+    <!-- Rounded white check mark inside lower-right cutout -->
+    <path
+        android:pathData="M54.81,62.91L58.05,66.15L64.53,59.13"
+        android:strokeColor="#FFFFFFFF"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:strokeWidth="3.13" />
+</vector>

@@ -10,6 +10,8 @@ val CineSurfaceHigh = Color(0xFF282836)
 val CineCrimson = Color(0xFFE50914)
 val CineCrimsonContainer = Color(0xFF4F070B)
 val CineCrimsonGlow = Color(0xFFFF3B45)
+val CineLogoGradientTop = Color(0xFFFF2D3A)
+val CineLogoGradientBottom = Color(0xFFB0000F)
 
 val CineGold = Color(0xFFF5C518)
 val CineEmerald = Color(0xFF22C55E)

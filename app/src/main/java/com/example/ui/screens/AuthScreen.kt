@@ -1,7 +1,9 @@
 package com.example.ui.screens
 
 import android.os.Build
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.Spring
@@ -13,8 +15,9 @@ import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
-import androidx.compose.animation.scaleIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
@@ -48,7 +51,6 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.CloudDone
-import androidx.compose.material.icons.rounded.Movie
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Star
 import androidx.compose.material3.Button
@@ -66,6 +68,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -104,15 +107,26 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import coil.compose.AsyncImage
+import coil.imageLoader
+import coil.request.ImageRequest
 import com.example.R
 import com.example.auth.attemptAutoSignIn
 import com.example.auth.onGoogleSignInClicked
+import com.example.data.repository.DEFAULT_LOGIN_BACKGROUND_STYLE
+import com.example.data.repository.DEFAULT_LOGIN_POSTER_SOURCE
+import com.example.data.repository.LoginBackgroundStyle
 import com.example.data.repository.TmdbRepository
+import com.example.ui.components.CineLogLogo
+import com.example.ui.components.CineLogLogoLayout
 import com.example.ui.theme.CineCrimsonGlow
 import com.example.ui.theme.CineGold
 import com.example.ui.theme.CineObsidian
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlin.math.PI
+import kotlin.math.cos
+import kotlin.math.sin
+import kotlin.random.Random
 
 private data class AuthFeatureSlide(
     val icon: ImageVector,
@@ -134,11 +148,17 @@ fun AuthScreen(
     val snackbarHostState = remember { SnackbarHostState() }
 
     var isLoading by remember { mutableStateOf(false) }
-    var trendingPosters by remember { mutableStateOf<List<String>>(emptyList()) }
+    var loginPosters by remember {
+        mutableStateOf(
+            tmdbRepository.peekMemoryCachedLoginPosters(
+                source = DEFAULT_LOGIN_POSTER_SOURCE,
+                style = DEFAULT_LOGIN_BACKGROUND_STYLE,
+            ).orEmpty()
+        )
+    }
     var isScreenVisible by remember { mutableStateOf(true) }
 
     // Staggered entry animation flags
-    var showLogo by remember { mutableStateOf(false) }
     var showHeadline by remember { mutableStateOf(false) }
     var showCards by remember { mutableStateOf(false) }
     var showButton by remember { mutableStateOf(false) }
@@ -168,14 +188,18 @@ fun AuthScreen(
             )
         }
         launch {
-            val urls = runCatching { tmdbRepository.getTrendingPostersForLogin() }
-                .getOrDefault(emptyList())
+            val urls = runCatching {
+                tmdbRepository.getLoginPosters(
+                    source = DEFAULT_LOGIN_POSTER_SOURCE,
+                    style = DEFAULT_LOGIN_BACKGROUND_STYLE,
+                    context = context.applicationContext,
+                )
+            }.getOrDefault(emptyList())
             if (urls.isNotEmpty()) {
-                trendingPosters = urls
+                loginPosters = urls
             }
         }
-        showLogo = true
-        delay(80L)
+        delay(120L)
         showHeadline = true
         delay(80L)
         showCards = true
@@ -241,9 +265,10 @@ fun AuthScreen(
                 .fillMaxSize()
                 .background(MaterialTheme.colorScheme.background),
         ) {
-            // 1. Animated Poster Wall Background (or soft red radial glow fallback)
-            AnimatedPosterWallBackground(
-                posterUrls = trendingPosters,
+            // 1. Cinematic Poster Slideshow / Poster Wall Background (or soft red glow fallback)
+            LoginBackdrop(
+                posterUrls = loginPosters,
+                style = DEFAULT_LOGIN_BACKGROUND_STYLE,
                 animate = isScreenVisible,
                 accentColor = MaterialTheme.colorScheme.primary,
                 backgroundColor = MaterialTheme.colorScheme.background,
@@ -265,57 +290,18 @@ fun AuthScreen(
                     modifier = Modifier.widthIn(max = 460.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
-                    // 2. Hero Section - Logo + Glow
-                    AnimatedVisibility(
-                        visible = showLogo,
-                        enter = fadeIn(tween(380)) + scaleIn(
-                            initialScale = 0.88f,
-                            animationSpec = spring(
-                                dampingRatio = Spring.DampingRatioMediumBouncy,
-                                stiffness = Spring.StiffnessMediumLow,
-                            ),
-                        ),
-                    ) {
-                        Box(contentAlignment = Alignment.Center) {
-                            Box(
-                                modifier = Modifier
-                                    .size(width = 230.dp, height = 96.dp)
-                                    .background(
-                                        Brush.radialGradient(
-                                            colors = listOf(
-                                                MaterialTheme.colorScheme.primary.copy(alpha = 0.48f),
-                                                Color.Transparent,
-                                            )
-                                        )
-                                    )
-                            )
-                            Surface(
-                                color = MaterialTheme.colorScheme.primary,
-                                shape = RoundedCornerShape(16.dp),
-                                shadowElevation = 14.dp,
-                            ) {
-                                Row(
-                                    modifier = Modifier.padding(horizontal = 18.dp, vertical = 10.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Rounded.Movie,
-                                        contentDescription = null,
-                                        tint = MaterialTheme.colorScheme.onPrimary,
-                                        modifier = Modifier.size(26.dp),
-                                    )
-                                    Spacer(modifier = Modifier.width(8.dp))
-                                    Text(
-                                        text = "CINELOG",
-                                        style = MaterialTheme.typography.headlineLarge,
-                                        color = MaterialTheme.colorScheme.onPrimary,
-                                    )
-                                }
-                            }
-                        }
-                    }
+                    // 2. Hero Section - Animated CineLog Logo + Glow
+                    CineLogLogo(
+                        size = 72.dp,
+                        showWordmark = true,
+                        animated = true,
+                        wordmarkFontSize = 34.sp,
+                        layout = CineLogLogoLayout.Vertical,
+                        showGlow = true,
+                        modifier = Modifier.testTag("login_logo"),
+                    )
 
-                    Spacer(modifier = Modifier.height(14.dp))
+                    Spacer(modifier = Modifier.height(16.dp))
 
                     // Headline + Tagline + One-line subtitle
                     AnimatedVisibility(
@@ -571,6 +557,192 @@ fun AuthScreen(
 }
 
 @Composable
+private fun LoginBackdrop(
+    posterUrls: List<String>,
+    style: LoginBackgroundStyle,
+    animate: Boolean,
+    accentColor: Color,
+    backgroundColor: Color,
+) {
+    val cleanPosters = remember(posterUrls) {
+        posterUrls.filter { it.isNotBlank() }.distinct()
+    }
+    if (cleanPosters.isEmpty()) {
+        LoginFallbackGlowBackground(
+            accentColor = accentColor,
+            backgroundColor = backgroundColor,
+        )
+        return
+    }
+
+    when (style) {
+        LoginBackgroundStyle.SLIDESHOW -> CinematicSlideshowBackground(
+            posters = cleanPosters,
+            animate = animate,
+            backgroundColor = backgroundColor,
+        )
+        LoginBackgroundStyle.POSTER_WALL -> AnimatedPosterWallBackground(
+            posterUrls = cleanPosters,
+            animate = animate,
+            accentColor = accentColor,
+            backgroundColor = backgroundColor,
+        )
+    }
+}
+
+@Composable
+private fun LoginFallbackGlowBackground(
+    accentColor: Color,
+    backgroundColor: Color,
+) {
+    BoxWithConstraints(
+        modifier = Modifier
+            .fillMaxSize()
+            .clipToBounds(),
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(
+                    Brush.verticalGradient(
+                        colors = listOf(
+                            accentColor.copy(alpha = 0.14f),
+                            backgroundColor,
+                            CineObsidian,
+                        )
+                    )
+                )
+        )
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(
+                    Brush.radialGradient(
+                        colors = listOf(
+                            accentColor.copy(alpha = 0.24f),
+                            Color.Transparent,
+                        ),
+                        center = Offset(constraints.maxWidth / 2f, constraints.maxHeight * 0.22f),
+                        radius = (constraints.maxWidth * 0.78f).coerceAtLeast(300f),
+                    )
+                )
+        )
+    }
+}
+
+@Composable
+private fun CinematicSlideshowBackground(
+    posters: List<String>,
+    animate: Boolean,
+    backgroundColor: Color,
+) {
+    val context = LocalContext.current
+    val imageLoader = remember(context) { context.imageLoader }
+    var currentIndex by remember(posters) { mutableIntStateOf(0) }
+
+    LaunchedEffect(posters, animate) {
+        if (!animate || posters.size <= 1) return@LaunchedEffect
+        while (true) {
+            delay(4000L)
+            currentIndex = (currentIndex + 1) % posters.size
+        }
+    }
+
+    LaunchedEffect(posters, currentIndex) {
+        if (posters.size <= 1) return@LaunchedEffect
+        val nextUrl = posters[(currentIndex + 1) % posters.size]
+        imageLoader.enqueue(
+            ImageRequest.Builder(context)
+                .data(nextUrl)
+                .size(780, 1170)
+                .build()
+        )
+    }
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .clipToBounds(),
+    ) {
+        AnimatedContent(
+            targetState = currentIndex,
+            transitionSpec = {
+                fadeIn(animationSpec = tween(durationMillis = 1000)) togetherWith
+                    fadeOut(animationSpec = tween(durationMillis = 1000))
+            },
+            contentKey = { idx -> posters.getOrNull(idx) ?: idx },
+            label = "login_slideshow_crossfade",
+            modifier = Modifier.fillMaxSize(),
+        ) { slideIndex ->
+            val posterUrl = posters.getOrNull(slideIndex).orEmpty()
+            val driftDirection = remember(slideIndex, posterUrl) {
+                val rng = Random(slideIndex * 31 + posterUrl.hashCode())
+                val angle = rng.nextDouble(0.0, PI * 2.0)
+                Offset(x = cos(angle).toFloat(), y = sin(angle).toFloat())
+            }
+            val kenBurnsProgress = remember(slideIndex, posterUrl) { Animatable(0f) }
+
+            LaunchedEffect(slideIndex, posterUrl, animate) {
+                if (!animate) return@LaunchedEffect
+                val remaining = (1f - kenBurnsProgress.value).coerceIn(0f, 1f)
+                if (remaining > 0f) {
+                    kenBurnsProgress.animateTo(
+                        targetValue = 1f,
+                        animationSpec = tween(
+                            durationMillis = (remaining * 5000f).toInt().coerceAtLeast(100),
+                            easing = LinearEasing,
+                        ),
+                    )
+                }
+            }
+
+            val density = LocalDensity.current
+            val maxDriftXPx = with(density) { 12.dp.toPx() }
+            val maxDriftYPx = with(density) { 18.dp.toPx() }
+
+            val imageRequest = remember(posterUrl, context) {
+                ImageRequest.Builder(context)
+                    .data(posterUrl)
+                    .size(780, 1170)
+                    .crossfade(false)
+                    .build()
+            }
+
+            AsyncImage(
+                model = imageRequest,
+                contentDescription = null,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .graphicsLayer {
+                        val t = kenBurnsProgress.value
+                        val scale = 1.0f + 0.12f * t
+                        scaleX = scale
+                        scaleY = scale
+                        translationX = driftDirection.x * maxDriftXPx * t
+                        translationY = driftDirection.y * maxDriftYPx * t
+                    },
+            )
+        }
+
+        // Dark vertical gradient overlay: ~0.25 at top rising to ~0.90 behind logo, headline, pager & button
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(
+                    Brush.verticalGradient(
+                        0.00f to backgroundColor.copy(alpha = 0.25f),
+                        0.18f to backgroundColor.copy(alpha = 0.52f),
+                        0.34f to backgroundColor.copy(alpha = 0.88f),
+                        0.58f to backgroundColor.copy(alpha = 0.92f),
+                        1.00f to backgroundColor.copy(alpha = 0.97f),
+                    )
+                )
+        )
+    }
+}
+
+@Composable
 private fun AnimatedPosterWallBackground(
     posterUrls: List<String>,
     animate: Boolean,
@@ -583,51 +755,15 @@ private fun AnimatedPosterWallBackground(
             .clipToBounds(),
     ) {
         if (posterUrls.isEmpty()) {
-            // Fallback: dark gradient with soft red radial glow
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(
-                        Brush.verticalGradient(
-                            colors = listOf(
-                                accentColor.copy(alpha = 0.14f),
-                                backgroundColor,
-                                CineObsidian,
-                            )
-                        )
-                    )
-            )
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(
-                        Brush.radialGradient(
-                            colors = listOf(
-                                accentColor.copy(alpha = 0.24f),
-                                Color.Transparent,
-                            ),
-                            center = Offset(constraints.maxWidth / 2f, constraints.maxHeight * 0.22f),
-                            radius = (constraints.maxWidth * 0.78f).coerceAtLeast(300f),
-                        )
-                    )
+            LoginFallbackGlowBackground(
+                accentColor = accentColor,
+                backgroundColor = backgroundColor,
             )
             return@BoxWithConstraints
         }
 
         val columnPosters = remember(posterUrls) {
-            val cols = List(3) { mutableListOf<String>() }
-            posterUrls.forEachIndexed { idx, url ->
-                cols[idx % 3].add(url)
-            }
-            cols.map { list ->
-                val base = if (list.isEmpty()) posterUrls.take(5) else list
-                // Repeat items so endless scroll loop never exposes empty space
-                val expanded = mutableListOf<String>()
-                while (expanded.size < 6) {
-                    expanded.addAll(base)
-                }
-                expanded.take(8)
-            }
+            distributePostersAcrossColumns(posterUrls = posterUrls, columnCount = 3)
         }
 
         val progress = if (animate) {
@@ -710,6 +846,41 @@ private fun AnimatedPosterWallBackground(
                     )
                 )
         )
+    }
+}
+
+/**
+ * Partitions unique posters round-robin across [columnCount] columns so no poster appears
+ * side by side, then duplicates each column's cycle unit cleanly (`cycleUnit + cycleUnit`)
+ * for seamless infinite vertical scrolling.
+ */
+internal fun distributePostersAcrossColumns(
+    posterUrls: List<String>,
+    columnCount: Int = 3,
+    minCycleLength: Int = 6,
+): List<List<String>> {
+    val unique = posterUrls.filter { it.isNotBlank() }.distinct()
+    if (unique.isEmpty() || columnCount <= 0) return List(columnCount.coerceAtLeast(0)) { emptyList() }
+
+    val baseColumns: List<List<String>> = if (unique.size < columnCount) {
+        List(columnCount) { colIndex ->
+            List(unique.size) { offset -> unique[(offset + colIndex) % unique.size] }
+        }
+    } else {
+        val cols = List(columnCount) { mutableListOf<String>() }
+        unique.forEachIndexed { idx, url ->
+            cols[idx % columnCount].add(url)
+        }
+        cols
+    }
+
+    return baseColumns.map { base ->
+        val cycleUnit = mutableListOf<String>()
+        while (cycleUnit.size < minCycleLength) {
+            cycleUnit.addAll(base)
+        }
+        // Double the exact cycle unit so half-list translation wraps seamlessly
+        cycleUnit + cycleUnit
     }
 }
 

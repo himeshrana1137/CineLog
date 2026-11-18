@@ -25,6 +25,17 @@ interface TmdbApiService {
         @Query("page") page: Int = 1,
     ): TmdbSearchResponse
 
+    @GET("discover/movie")
+    suspend fun discoverMovies(
+        @Query("with_companies") withCompanies: String,
+        @Query("sort_by") sortBy: String = "popularity.desc",
+        @Query("page") page: Int = 1,
+        @Query("include_adult") includeAdult: Boolean = false,
+        @Query("language") language: String = "en-US",
+        @Query("api_key") apiKey: String? = null,
+        @Header("Authorization") bearerAuth: String? = null,
+    ): TmdbSearchResponse
+
     @GET("movie/{movie_id}")
     suspend fun getMovieDetails(
         @Path("movie_id") movieId: Long,

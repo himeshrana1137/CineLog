@@ -1,5 +1,6 @@
 package com.example.data.repository
 
+import android.content.Context
 import com.example.BuildConfig
 import com.example.data.model.MediaImages
 import com.example.data.model.MediaType
@@ -12,6 +13,7 @@ import com.squareup.moshi.Moshi
 import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import okhttp3.OkHttpClient
 import okhttp3.logging.HttpLoggingInterceptor
@@ -32,10 +34,20 @@ private enum class AuthMode {
     BEARER_TOKEN,
 }
 
-class TmdbRepository(
-    private val apiService: TmdbApiService = defaultApiService(),
-    private val apiKeyProvider: () -> String = { BuildConfig.TMDB_API_KEY },
+class TmdbRepository internal constructor(
+    private val apiService: TmdbApiService,
+    private val apiKeyProvider: () -> String,
+    private val loginPosterCache: LoginPosterCache,
 ) {
+    constructor(
+        apiService: TmdbApiService = defaultApiService(),
+        apiKeyProvider: () -> String = { BuildConfig.TMDB_API_KEY },
+    ) : this(
+        apiService = apiService,
+        apiKeyProvider = apiKeyProvider,
+        loginPosterCache = LoginPosterCache(),
+    )
+
     private val tvFullDetailsCache = ConcurrentHashMap<Long, MovieDetails>()
     private val tvBaseDetailsCache = ConcurrentHashMap<Long, MovieDetails>()
     private val seasonEpisodesCache = ConcurrentHashMap<String, TvSeasonDetail>()
@@ -205,7 +217,9 @@ class TmdbRepository(
             }
         }
 
-    suspend fun getTrendingPostersForLogin(): List<String> {
+    suspend fun getTrendingPostersForLogin(
+        posterWidth: String = defaultPosterWidth(DEFAULT_LOGIN_BACKGROUND_STYLE),
+    ): List<String> {
         return runTmdbCallWithFallback { credential, mode ->
             when (mode) {
                 AuthMode.API_KEY -> apiService.getTrendingAllWeek(apiKey = credential)
@@ -213,11 +227,100 @@ class TmdbRepository(
             }.results
                 .mapNotNull { item ->
                     item.posterPath?.takeIf { it.isNotBlank() }?.let {
-                        "https://image.tmdb.org/t/p/w342$it"
+                        "$TMDB_IMAGE_BASE_URL$posterWidth$it"
                     }
                 }
                 .distinct()
         }.getOrDefault(emptyList())
+    }
+
+    suspend fun getMarvelPosters(
+        targetCount: Int = defaultPosterCount(DEFAULT_LOGIN_BACKGROUND_STYLE),
+        minMarvelThreshold: Int = defaultMinMarvelThreshold(DEFAULT_LOGIN_BACKGROUND_STYLE),
+        posterWidth: String = defaultPosterWidth(DEFAULT_LOGIN_BACKGROUND_STYLE),
+    ): List<String> {
+        val marvelPosters = coroutineScope {
+            (1..MARVEL_POSTER_PAGES).map { page ->
+                async {
+                    runTmdbCallWithFallback { credential, mode ->
+                        when (mode) {
+                            AuthMode.API_KEY -> apiService.discoverMovies(
+                                withCompanies = MARVEL_STUDIOS_COMPANY_ID,
+                                sortBy = "popularity.desc",
+                                page = page,
+                                apiKey = credential,
+                            )
+                            AuthMode.BEARER_TOKEN -> apiService.discoverMovies(
+                                withCompanies = MARVEL_STUDIOS_COMPANY_ID,
+                                sortBy = "popularity.desc",
+                                page = page,
+                                bearerAuth = "Bearer $credential",
+                            )
+                        }.results
+                    }.getOrDefault(emptyList())
+                }
+            }.awaitAll()
+        }
+            .flatten()
+            .filter { !it.posterPath.isNullOrBlank() }
+            .distinctBy { it.id }
+            .map { "$TMDB_IMAGE_BASE_URL$posterWidth${it.posterPath}" }
+            .distinct()
+            .take(targetCount)
+
+        val finalUrls = if (marvelPosters.size < minMarvelThreshold) {
+            val existing = marvelPosters.toHashSet()
+            val trendingFill = runCatching { getTrendingPostersForLogin(posterWidth = posterWidth) }
+                .getOrDefault(emptyList())
+                .filter { it !in existing }
+            (marvelPosters + trendingFill).take(targetCount)
+        } else {
+            marvelPosters
+        }
+
+        return finalUrls.shuffled()
+    }
+
+    fun peekMemoryCachedLoginPosters(
+        source: LoginPosterSource = DEFAULT_LOGIN_POSTER_SOURCE,
+        style: LoginBackgroundStyle = DEFAULT_LOGIN_BACKGROUND_STYLE,
+    ): List<String>? = loginPosterCache.peekMemory(source = source, style = style)
+
+    suspend fun getLoginPosters(
+        source: LoginPosterSource = DEFAULT_LOGIN_POSTER_SOURCE,
+        style: LoginBackgroundStyle = DEFAULT_LOGIN_BACKGROUND_STYLE,
+        context: Context? = null,
+    ): List<String> {
+        loginPosterCache.getCachedPosters(source = source, style = style, context = context)
+            ?.takeIf { it.isNotEmpty() }
+            ?.let { return it }
+
+        val targetCount = defaultPosterCount(style)
+        val minThreshold = defaultMinMarvelThreshold(style)
+        val posterWidth = defaultPosterWidth(style)
+
+        val fetched = runCatching {
+            when (source) {
+                LoginPosterSource.MARVEL -> getMarvelPosters(
+                    targetCount = targetCount,
+                    minMarvelThreshold = minThreshold,
+                    posterWidth = posterWidth,
+                )
+                LoginPosterSource.TRENDING -> getTrendingPostersForLogin(
+                    posterWidth = posterWidth,
+                ).take(targetCount).shuffled()
+            }
+        }.getOrDefault(emptyList())
+
+        if (fetched.isNotEmpty()) {
+            loginPosterCache.savePosters(
+                source = source,
+                style = style,
+                urls = fetched,
+                context = context,
+            )
+        }
+        return fetched
     }
 
     suspend fun getMediaDetails(
@@ -517,6 +620,30 @@ class TmdbRepository(
     companion object {
         private const val BASE_URL = "https://api.themoviedb.org/3/"
         private const val PLACEHOLDER_KEY = "MY_TMDB_API_KEY"
+        private const val TMDB_IMAGE_BASE_URL = "https://image.tmdb.org/t/p/"
+        private const val POSTER_SIZE_SLIDESHOW = "w780"
+        private const val POSTER_SIZE_WALL = "w342"
+        private const val MARVEL_STUDIOS_COMPANY_ID = "420"
+        private const val MARVEL_POSTER_PAGES = 3
+        private const val SLIDESHOW_POSTER_TARGET_COUNT = 18
+        private const val WALL_POSTER_TARGET_COUNT = 30
+        private const val SLIDESHOW_MIN_MARVEL_THRESHOLD = 6
+        private const val WALL_MIN_MARVEL_THRESHOLD = 9
+
+        internal fun defaultPosterCount(style: LoginBackgroundStyle): Int = when (style) {
+            LoginBackgroundStyle.SLIDESHOW -> SLIDESHOW_POSTER_TARGET_COUNT
+            LoginBackgroundStyle.POSTER_WALL -> WALL_POSTER_TARGET_COUNT
+        }
+
+        internal fun defaultMinMarvelThreshold(style: LoginBackgroundStyle): Int = when (style) {
+            LoginBackgroundStyle.SLIDESHOW -> SLIDESHOW_MIN_MARVEL_THRESHOLD
+            LoginBackgroundStyle.POSTER_WALL -> WALL_MIN_MARVEL_THRESHOLD
+        }
+
+        internal fun defaultPosterWidth(style: LoginBackgroundStyle): String = when (style) {
+            LoginBackgroundStyle.SLIDESHOW -> POSTER_SIZE_SLIDESHOW
+            LoginBackgroundStyle.POSTER_WALL -> POSTER_SIZE_WALL
+        }
 
         fun defaultApiService(): TmdbApiService {
             val logging = HttpLoggingInterceptor().apply {

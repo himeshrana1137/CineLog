@@ -3,21 +3,25 @@ package com.example.ui.screens
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
@@ -61,6 +65,7 @@ import coil.compose.AsyncImage
 import com.example.R
 import com.example.data.model.WatchlistItem
 import com.example.ui.DiscoverMediaFilter
+import com.example.ui.ListsSubTab
 import com.example.ui.WatchlistUiState
 import com.example.ui.components.CineEmptyState
 import com.example.ui.components.MovieSkeletonCard
@@ -70,8 +75,69 @@ import com.example.ui.theme.CineSurfaceHigh
 import java.util.Locale
 
 @Composable
+internal fun ListsSubTabsRow(
+    listsSubTab: ListsSubTab,
+    watchlistCount: Int,
+    customListsCount: Int,
+    onSelectListsSubTab: (ListsSubTab) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val rowState = rememberLazyListState()
+    Box(modifier = modifier.fillMaxWidth()) {
+        LazyRow(
+            state = rowState,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            contentPadding = PaddingValues(end = 16.dp),
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            items(ListsSubTab.entries, key = { it.name }) { tab ->
+                val countSuffix = when (tab) {
+                    ListsSubTab.WATCHLIST -> if (watchlistCount > 0) " ($watchlistCount)" else ""
+                    ListsSubTab.CUSTOM_LISTS -> if (customListsCount > 0) " ($customListsCount)" else ""
+                }
+                FilterChip(
+                    selected = listsSubTab == tab,
+                    onClick = { onSelectListsSubTab(tab) },
+                    label = {
+                        Text(
+                            text = "${tab.label}$countSuffix",
+                            fontWeight = FontWeight.SemiBold,
+                            maxLines = 1,
+                            softWrap = false,
+                        )
+                    },
+                    colors = FilterChipDefaults.filterChipColors(
+                        selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
+                        selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                    ),
+                    modifier = Modifier.testTag("lists_subtab_${tab.name.lowercase()}"),
+                )
+            }
+        }
+        if (rowState.canScrollForward) {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.CenterEnd)
+                    .width(24.dp)
+                    .height(40.dp)
+                    .background(
+                        Brush.horizontalGradient(
+                            colors = listOf(Color.Transparent, MaterialTheme.colorScheme.background)
+                        )
+                    )
+            )
+        }
+    }
+}
+
+@Composable
 fun WatchlistScreen(
     watchlistState: WatchlistUiState,
+    listsSubTab: ListsSubTab,
+    watchlistCount: Int,
+    customListsCount: Int,
+    onSelectListsSubTab: (ListsSubTab) -> Unit,
     pendingToggleKeys: Set<String>,
     columnsCount: Int,
     onItemClick: (WatchlistItem) -> Unit,
@@ -83,38 +149,99 @@ fun WatchlistScreen(
     modifier: Modifier = Modifier,
 ) {
     var filter by remember { mutableStateOf(DiscoverMediaFilter.ALL) }
+    val navBarBottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+    val listBottomPadding = 84.dp + navBarBottom
 
-    Column(modifier = modifier.fillMaxSize()) {
+    Box(modifier = modifier.fillMaxSize()) {
         when (watchlistState) {
             is WatchlistUiState.Loading -> {
                 LazyVerticalGrid(
                     columns = GridCells.Fixed(columnsCount),
-                    contentPadding = PaddingValues(16.dp),
+                    contentPadding = PaddingValues(
+                        start = 16.dp,
+                        end = 16.dp,
+                        top = 4.dp,
+                        bottom = listBottomPadding,
+                    ),
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
                     modifier = Modifier.fillMaxSize(),
                 ) {
+                    item(span = { GridItemSpan(maxLineSpan) }, key = "lists_subtabs_row") {
+                        ListsSubTabsRow(
+                            listsSubTab = listsSubTab,
+                            watchlistCount = watchlistCount,
+                            customListsCount = customListsCount,
+                            onSelectListsSubTab = onSelectListsSubTab,
+                        )
+                    }
                     items(4) { MovieSkeletonCard() }
                 }
             }
 
             is WatchlistUiState.Error -> {
-                CineEmptyState(
-                    title = "Unable to load Watchlist",
-                    subtitle = watchlistState.message,
+                LazyColumn(
                     modifier = Modifier.fillMaxSize(),
-                )
+                    contentPadding = PaddingValues(
+                        start = 16.dp,
+                        end = 16.dp,
+                        top = 4.dp,
+                        bottom = listBottomPadding,
+                    ),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    item(key = "lists_subtabs_row") {
+                        ListsSubTabsRow(
+                            listsSubTab = listsSubTab,
+                            watchlistCount = watchlistCount,
+                            customListsCount = customListsCount,
+                            onSelectListsSubTab = onSelectListsSubTab,
+                        )
+                    }
+                    item {
+                        CineEmptyState(
+                            title = "Unable to load Watchlist",
+                            subtitle = watchlistState.message,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(top = 24.dp),
+                        )
+                    }
+                }
             }
 
             is WatchlistUiState.Success -> {
                 if (watchlistState.items.isEmpty()) {
-                    CineEmptyState(
-                        title = stringResource(R.string.empty_watchlist_title),
-                        subtitle = stringResource(R.string.empty_watchlist_subtitle),
-                        actionLabel = "Browse Discover",
-                        onActionClick = onExploreClick,
+                    LazyColumn(
                         modifier = Modifier.fillMaxSize(),
-                    )
+                        contentPadding = PaddingValues(
+                            start = 16.dp,
+                            end = 16.dp,
+                            top = 4.dp,
+                            bottom = listBottomPadding,
+                        ),
+                        verticalArrangement = Arrangement.spacedBy(12.dp),
+                    ) {
+                        item(key = "lists_subtabs_row") {
+                            ListsSubTabsRow(
+                                listsSubTab = listsSubTab,
+                                watchlistCount = watchlistCount,
+                                customListsCount = customListsCount,
+                                onSelectListsSubTab = onSelectListsSubTab,
+                            )
+                        }
+                        item {
+                            CineEmptyState(
+                                title = stringResource(R.string.empty_watchlist_title),
+                                subtitle = stringResource(R.string.empty_watchlist_subtitle),
+                                actionLabel = "Browse Discover",
+                                onActionClick = onExploreClick,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(top = 24.dp),
+                            )
+                        }
+                    }
                 } else {
                     val filteredItems = watchlistState.items.filter { item ->
                         when (filter) {
@@ -124,118 +251,131 @@ fun WatchlistScreen(
                         }
                     }
 
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(vertical = 8.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                    val gridCols = if (columnsCount >= 3) 2 else 1
+                    LazyVerticalGrid(
+                        columns = GridCells.Fixed(gridCols),
+                        contentPadding = PaddingValues(
+                            start = 16.dp,
+                            end = 16.dp,
+                            top = 4.dp,
+                            bottom = listBottomPadding,
+                        ),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp),
+                        modifier = Modifier.fillMaxSize(),
                     ) {
-                        Surface(
-                            color = MaterialTheme.colorScheme.surface,
-                            shape = MaterialTheme.shapes.medium,
-                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 16.dp),
-                        ) {
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(horizontal = 16.dp, vertical = 12.dp),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically,
-                            ) {
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Text(
-                                        text = "WATCH LATER QUEUE",
-                                        style = MaterialTheme.typography.labelMedium,
-                                        color = MaterialTheme.colorScheme.primary,
-                                    )
-                                    Text(
-                                        text = "${watchlistState.items.size} Saved ${if (watchlistState.items.size == 1) "Title" else "Titles"}",
-                                        style = MaterialTheme.typography.titleLarge,
-                                        color = MaterialTheme.colorScheme.onSurface,
-                                    )
-                                }
-                                Button(
-                                    onClick = onSurpriseMeClick,
-                                    shape = RoundedCornerShape(10.dp),
-                                    contentPadding = PaddingValues(horizontal = 12.dp),
-                                    modifier = Modifier
-                                        .height(44.dp)
-                                        .testTag("watchlist_surprise_me_button"),
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Rounded.Casino,
-                                        contentDescription = null,
-                                        modifier = Modifier.size(16.dp),
-                                    )
-                                    Spacer(modifier = Modifier.width(6.dp))
-                                    Text("Surprise Me", fontWeight = FontWeight.Bold)
-                                }
-                            }
+                        item(span = { GridItemSpan(maxLineSpan) }, key = "lists_subtabs_row") {
+                            ListsSubTabsRow(
+                                listsSubTab = listsSubTab,
+                                watchlistCount = watchlistCount,
+                                customListsCount = customListsCount,
+                                onSelectListsSubTab = onSelectListsSubTab,
+                            )
                         }
 
-                        val filterRowState = rememberLazyListState()
-                        Box(modifier = Modifier.fillMaxWidth()) {
-                            LazyRow(
-                                state = filterRowState,
-                                contentPadding = PaddingValues(horizontal = 16.dp),
-                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        item(span = { GridItemSpan(maxLineSpan) }, key = "watchlist_summary_header") {
+                            Surface(
+                                color = MaterialTheme.colorScheme.surface,
+                                shape = MaterialTheme.shapes.medium,
+                                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
                                 modifier = Modifier.fillMaxWidth(),
                             ) {
-                                items(DiscoverMediaFilter.entries, key = { it.name }) { option ->
-                                    FilterChip(
-                                        selected = filter == option,
-                                        onClick = { filter = option },
-                                        label = {
-                                            Text(
-                                                text = option.label,
-                                                maxLines = 1,
-                                                softWrap = false,
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 16.dp, vertical = 10.dp),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(
+                                            text = "WATCH LATER QUEUE",
+                                            style = MaterialTheme.typography.labelMedium,
+                                            color = MaterialTheme.colorScheme.primary,
+                                        )
+                                        Text(
+                                            text = "${watchlistState.items.size} Saved ${if (watchlistState.items.size == 1) "Title" else "Titles"}",
+                                            style = MaterialTheme.typography.titleLarge,
+                                            color = MaterialTheme.colorScheme.onSurface,
+                                        )
+                                    }
+                                    Button(
+                                        onClick = onSurpriseMeClick,
+                                        shape = RoundedCornerShape(10.dp),
+                                        contentPadding = PaddingValues(horizontal = 12.dp),
+                                        modifier = Modifier
+                                            .height(48.dp)
+                                            .testTag("watchlist_surprise_me_button"),
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Rounded.Casino,
+                                            contentDescription = null,
+                                            modifier = Modifier.size(16.dp),
+                                        )
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Text("Surprise Me", fontWeight = FontWeight.Bold)
+                                    }
+                                }
+                            }
+                        }
+
+                        item(span = { GridItemSpan(maxLineSpan) }, key = "watchlist_media_filters") {
+                            val filterRowState = rememberLazyListState()
+                            Box(modifier = Modifier.fillMaxWidth()) {
+                                LazyRow(
+                                    state = filterRowState,
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    contentPadding = PaddingValues(end = 16.dp),
+                                    modifier = Modifier.fillMaxWidth(),
+                                ) {
+                                    items(DiscoverMediaFilter.entries, key = { it.name }) { option ->
+                                        FilterChip(
+                                            selected = filter == option,
+                                            onClick = { filter = option },
+                                            label = {
+                                                Text(
+                                                    text = option.label,
+                                                    maxLines = 1,
+                                                    softWrap = false,
+                                                )
+                                            },
+                                            colors = FilterChipDefaults.filterChipColors(
+                                                selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
+                                                selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                                            ),
+                                            modifier = Modifier.testTag("watchlist_filter_${option.name.lowercase()}"),
+                                        )
+                                    }
+                                }
+                                if (filterRowState.canScrollForward) {
+                                    Box(
+                                        modifier = Modifier
+                                            .align(Alignment.CenterEnd)
+                                            .width(24.dp)
+                                            .height(40.dp)
+                                            .background(
+                                                Brush.horizontalGradient(
+                                                    colors = listOf(Color.Transparent, MaterialTheme.colorScheme.background)
+                                                )
                                             )
-                                        },
-                                        colors = FilterChipDefaults.filterChipColors(
-                                            selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
-                                            selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                                        ),
-                                        modifier = Modifier.testTag("watchlist_filter_${option.name.lowercase()}"),
                                     )
                                 }
                             }
-                            if (filterRowState.canScrollForward) {
-                                Box(
+                        }
+
+                        if (filteredItems.isEmpty()) {
+                            item(span = { GridItemSpan(maxLineSpan) }, key = "watchlist_empty_filtered") {
+                                CineEmptyState(
+                                    title = "No matching saved titles",
+                                    subtitle = "Switch back to All to view your full Watchlist.",
+                                    actionLabel = "Show All",
+                                    onActionClick = { filter = DiscoverMediaFilter.ALL },
                                     modifier = Modifier
-                                        .align(Alignment.CenterEnd)
-                                        .width(28.dp)
-                                        .height(40.dp)
-                                        .background(
-                                            Brush.horizontalGradient(
-                                                colors = listOf(Color.Transparent, MaterialTheme.colorScheme.background)
-                                            )
-                                        )
+                                        .fillMaxWidth()
+                                        .padding(vertical = 24.dp),
                                 )
                             }
-                        }
-                    }
-
-                    if (filteredItems.isEmpty()) {
-                        CineEmptyState(
-                            title = "No matching saved titles",
-                            subtitle = "Switch back to All to view your full Watchlist.",
-                            actionLabel = "Show All",
-                            onActionClick = { filter = DiscoverMediaFilter.ALL },
-                            modifier = Modifier.fillMaxSize(),
-                        )
-                    } else {
-                        val gridCols = if (columnsCount >= 3) 2 else 1
-                        LazyVerticalGrid(
-                            columns = GridCells.Fixed(gridCols),
-                            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 96.dp),
-                            horizontalArrangement = Arrangement.spacedBy(12.dp),
-                            verticalArrangement = Arrangement.spacedBy(12.dp),
-                            modifier = Modifier.fillMaxSize(),
-                        ) {
+                        } else {
                             items(
                                 items = filteredItems,
                                 key = { it.uniqueKey },

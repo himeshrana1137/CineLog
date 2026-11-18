@@ -9,17 +9,21 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
@@ -70,6 +74,7 @@ import com.example.data.model.CustomList
 import com.example.data.model.CustomListEntry
 import com.example.data.model.MovieSummary
 import com.example.ui.CustomListsUiState
+import com.example.ui.ListsSubTab
 import com.example.ui.components.CineEmptyState
 import com.example.ui.theme.CineCharcoal
 import com.example.ui.theme.CineElevated
@@ -80,6 +85,10 @@ import java.util.Locale
 @Composable
 fun CustomListsTabContent(
     customListsState: CustomListsUiState,
+    listsSubTab: ListsSubTab,
+    watchlistCount: Int,
+    customListsCount: Int,
+    onSelectListsSubTab: (ListsSubTab) -> Unit,
     columnsCount: Int,
     onCreateList: (name: String, description: String) -> Unit,
     onRenameList: (list: CustomList, newName: String, newDesc: String) -> Unit,
@@ -90,13 +99,12 @@ fun CustomListsTabContent(
     var showCreateDialog by remember { mutableStateOf(false) }
     var editingList by remember { mutableStateOf<CustomList?>(null) }
     var deletingList by remember { mutableStateOf<CustomList?>(null) }
+    val navBarBottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+    val listBottomPadding = 84.dp + navBarBottom
 
-    Column(modifier = modifier.fillMaxSize()) {
-        // Header with New List action
+    val headerRow: @Composable () -> Unit = {
         Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 8.dp),
+            modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
         ) {
@@ -110,8 +118,11 @@ fun CustomListsTabContent(
                     text = "Curate themed playlists & watchlists",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
                 )
             }
+            Spacer(modifier = Modifier.width(8.dp))
             Button(
                 onClick = { showCreateDialog = true },
                 shape = RoundedCornerShape(10.dp),
@@ -125,46 +136,116 @@ fun CustomListsTabContent(
                     modifier = Modifier.size(18.dp),
                 )
                 Spacer(modifier = Modifier.width(6.dp))
-                Text("New List", fontWeight = FontWeight.Bold)
+                Text("New List", fontWeight = FontWeight.Bold, maxLines = 1, softWrap = false)
             }
         }
+    }
 
+    Box(modifier = modifier.fillMaxSize()) {
         when (customListsState) {
             is CustomListsUiState.Loading -> {
-                Box(
+                LazyColumn(
                     modifier = Modifier.fillMaxSize(),
-                    contentAlignment = Alignment.Center,
+                    contentPadding = PaddingValues(
+                        start = 16.dp,
+                        end = 16.dp,
+                        top = 4.dp,
+                        bottom = listBottomPadding,
+                    ),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
-                    CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
+                    item(key = "lists_subtabs_row") {
+                        ListsSubTabsRow(
+                            listsSubTab = listsSubTab,
+                            watchlistCount = watchlistCount,
+                            customListsCount = customListsCount,
+                            onSelectListsSubTab = onSelectListsSubTab,
+                        )
+                    }
+                    item { headerRow() }
+                    item {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 48.dp),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
+                        }
+                    }
                 }
             }
 
             is CustomListsUiState.Error -> {
-                CineEmptyState(
-                    title = "Couldn't load lists",
-                    subtitle = customListsState.message,
+                LazyColumn(
                     modifier = Modifier.fillMaxSize(),
-                )
+                    contentPadding = PaddingValues(
+                        start = 16.dp,
+                        end = 16.dp,
+                        top = 4.dp,
+                        bottom = listBottomPadding,
+                    ),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    item(key = "lists_subtabs_row") {
+                        ListsSubTabsRow(
+                            listsSubTab = listsSubTab,
+                            watchlistCount = watchlistCount,
+                            customListsCount = customListsCount,
+                            onSelectListsSubTab = onSelectListsSubTab,
+                        )
+                    }
+                    item { headerRow() }
+                    item {
+                        CineEmptyState(
+                            title = "Couldn't load lists",
+                            subtitle = customListsState.message,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(top = 24.dp),
+                        )
+                    }
+                }
             }
 
             is CustomListsUiState.Success -> {
-                if (customListsState.lists.isEmpty()) {
-                    CineEmptyState(
-                        title = "No custom lists yet",
-                        subtitle = "Group favorite franchises, weekend marathons, or comfort films into custom lists.",
-                        actionLabel = "Create First List",
-                        onActionClick = { showCreateDialog = true },
-                        modifier = Modifier.fillMaxSize(),
-                    )
-                } else {
-                    val gridCols = if (columnsCount >= 3) 2 else 1
-                    LazyVerticalGrid(
-                        columns = GridCells.Fixed(gridCols),
-                        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 96.dp),
-                        horizontalArrangement = Arrangement.spacedBy(12.dp),
-                        verticalArrangement = Arrangement.spacedBy(12.dp),
-                        modifier = Modifier.fillMaxSize(),
-                    ) {
+                val gridCols = if (columnsCount >= 3) 2 else 1
+                LazyVerticalGrid(
+                    columns = GridCells.Fixed(gridCols),
+                    contentPadding = PaddingValues(
+                        start = 16.dp,
+                        end = 16.dp,
+                        top = 4.dp,
+                        bottom = listBottomPadding,
+                    ),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                    modifier = Modifier.fillMaxSize(),
+                ) {
+                    item(span = { GridItemSpan(maxLineSpan) }, key = "lists_subtabs_row") {
+                        ListsSubTabsRow(
+                            listsSubTab = listsSubTab,
+                            watchlistCount = watchlistCount,
+                            customListsCount = customListsCount,
+                            onSelectListsSubTab = onSelectListsSubTab,
+                        )
+                    }
+                    item(span = { GridItemSpan(maxLineSpan) }, key = "custom_lists_header") {
+                        headerRow()
+                    }
+                    if (customListsState.lists.isEmpty()) {
+                        item(span = { GridItemSpan(maxLineSpan) }, key = "custom_lists_empty") {
+                            CineEmptyState(
+                                title = "No custom lists yet",
+                                subtitle = "Group favorite franchises, weekend marathons, or comfort films into custom lists.",
+                                actionLabel = "Create First List",
+                                onActionClick = { showCreateDialog = true },
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 24.dp),
+                            )
+                        }
+                    } else {
                         items(
                             items = customListsState.lists,
                             key = { it.id },
