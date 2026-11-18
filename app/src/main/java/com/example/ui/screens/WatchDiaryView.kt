@@ -82,7 +82,7 @@ fun WatchDiaryView(
         modifier = modifier
             .fillMaxSize()
             .testTag("watch_diary_view"),
-        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 10.dp),
+        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 10.dp, bottom = 96.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         // Monthly Calendar Card

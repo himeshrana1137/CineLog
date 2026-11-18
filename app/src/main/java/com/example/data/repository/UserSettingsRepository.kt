@@ -13,6 +13,7 @@ import com.google.firebase.auth.auth
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.FirebaseFirestoreException
+import com.google.firebase.firestore.SetOptions
 import com.google.firebase.firestore.snapshots
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.Flow
@@ -102,7 +103,50 @@ class UserSettingsRepository(
             "updatedAt" to FieldValue.serverTimestamp(),
         )
         return try {
-            docRef.set(payload).await()
+            docRef.set(payload, SetOptions.merge()).await()
+            Result.success(Unit)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            handleFirestoreError(e, OperationType.WRITE, docRef.path, auth)
+            Result.failure(e)
+        }
+    }
+
+    suspend fun markTvMigrationCompleted(): Result<Unit> {
+        val uid = try {
+            requireUserId()
+        } catch (e: Exception) {
+            return Result.failure(e)
+        }
+        val docRef = settingsDoc(uid)
+        return try {
+            val snap = try {
+                docRef.get().await()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                null
+            }
+            if (snap != null && snap.exists()) {
+                docRef.update(
+                    mapOf(
+                        "tvMigrationCompleted" to true,
+                        "updatedAt" to FieldValue.serverTimestamp(),
+                    )
+                ).await()
+            } else {
+                val local = loadLocalAccent()
+                docRef.set(
+                    mapOf(
+                        "userId" to uid,
+                        "accentPreset" to local.preset.key,
+                        "accentHex" to local.hex,
+                        "tvMigrationCompleted" to true,
+                        "updatedAt" to FieldValue.serverTimestamp(),
+                    )
+                ).await()
+            }
             Result.success(Unit)
         } catch (e: CancellationException) {
             throw e

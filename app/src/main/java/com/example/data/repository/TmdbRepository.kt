@@ -5,6 +5,7 @@ import com.example.data.model.MediaImages
 import com.example.data.model.MediaType
 import com.example.data.model.MovieDetails
 import com.example.data.model.MovieSummary
+import com.example.data.model.TvSeasonDetail
 import com.example.data.model.WatchProvidersRegion
 import com.example.data.remote.TmdbApiService
 import com.squareup.moshi.Moshi
@@ -19,6 +20,7 @@ import retrofit2.HttpException
 import retrofit2.Retrofit
 import retrofit2.converter.moshi.MoshiConverterFactory
 import java.io.IOException
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
 
 class TmdbApiKeyMissingException : Exception(
@@ -34,6 +36,10 @@ class TmdbRepository(
     private val apiService: TmdbApiService = defaultApiService(),
     private val apiKeyProvider: () -> String = { BuildConfig.TMDB_API_KEY },
 ) {
+    private val tvFullDetailsCache = ConcurrentHashMap<Long, MovieDetails>()
+    private val tvBaseDetailsCache = ConcurrentHashMap<Long, MovieDetails>()
+    private val seasonEpisodesCache = ConcurrentHashMap<String, TvSeasonDetail>()
+
     private fun sanitizeCredential(raw: String): String {
         var value = raw.trim()
             .removeSurrounding("\"")
@@ -199,14 +205,34 @@ class TmdbRepository(
             }
         }
 
+    suspend fun getTrendingPostersForLogin(): List<String> {
+        return runTmdbCallWithFallback { credential, mode ->
+            when (mode) {
+                AuthMode.API_KEY -> apiService.getTrendingAllWeek(apiKey = credential)
+                AuthMode.BEARER_TOKEN -> apiService.getTrendingAllWeek(bearerAuth = "Bearer $credential")
+            }.results
+                .mapNotNull { item ->
+                    item.posterPath?.takeIf { it.isNotBlank() }?.let {
+                        "https://image.tmdb.org/t/p/w342$it"
+                    }
+                }
+                .distinct()
+        }.getOrDefault(emptyList())
+    }
+
     suspend fun getMediaDetails(
         mediaId: Long,
         mediaType: MediaType,
         includeImagesAndProviders: Boolean = true,
+        preferredSeasonNumber: Int? = null,
     ): Result<MovieDetails> =
         when (mediaType) {
             MediaType.MOVIE -> getMovieDetails(mediaId, includeImagesAndProviders)
-            MediaType.TV -> getTvShowDetails(mediaId, includeImagesAndProviders)
+            MediaType.TV -> getTvShowDetails(
+                tvId = mediaId,
+                includeImagesAndProviders = includeImagesAndProviders,
+                preferredSeasonNumber = preferredSeasonNumber,
+            )
         }
 
     suspend fun getMovieDetails(
@@ -262,11 +288,26 @@ class TmdbRepository(
             }
         }
 
+    suspend fun getTvDetails(tvId: Long): Result<MovieDetails> {
+        tvFullDetailsCache[tvId]?.let { return Result.success(it) }
+        tvBaseDetailsCache[tvId]?.let { return Result.success(it) }
+        return getTvShowDetails(tvId = tvId, includeImagesAndProviders = false)
+    }
+
     suspend fun getTvShowDetails(
         tvId: Long,
         includeImagesAndProviders: Boolean = true,
-    ): Result<MovieDetails> =
-        runTmdbCallWithFallback { credential, mode ->
+        preferredSeasonNumber: Int? = null,
+    ): Result<MovieDetails> {
+        if (preferredSeasonNumber == null) {
+            if (includeImagesAndProviders) {
+                tvFullDetailsCache[tvId]?.let { return Result.success(it) }
+            } else {
+                (tvFullDetailsCache[tvId] ?: tvBaseDetailsCache[tvId])?.let { return Result.success(it) }
+            }
+        }
+
+        return runTmdbCallWithFallback { credential, mode ->
             coroutineScope {
                 val detailDeferred = async {
                     when (mode) {
@@ -296,7 +337,7 @@ class TmdbRepository(
                     }
                 } else null
 
-                val trailerDeferred = if (includeImagesAndProviders) {
+                val seriesTrailerDeferred = if (includeImagesAndProviders) {
                     async {
                         runCatching {
                             when (mode) {
@@ -307,13 +348,75 @@ class TmdbRepository(
                     }
                 } else null
 
-                detailDeferred.await().toDetails(
+                val rawDto = detailDeferred.await()
+                val targetSeasonNumber = if (includeImagesAndProviders) {
+                    preferredSeasonNumber?.takeIf { it > 0 }
+                        ?: rawDto.seasons
+                            .filter { it.seasonNumber > 0 && (it.episodeCount ?: 0) > 0 }
+                            .minByOrNull { it.seasonNumber }
+                            ?.seasonNumber
+                } else null
+
+                val seasonTrailer = if (targetSeasonNumber != null) {
+                    runCatching {
+                        when (mode) {
+                            AuthMode.API_KEY -> apiService.getTvSeasonVideos(
+                                tvId = tvId,
+                                seasonNumber = targetSeasonNumber,
+                                apiKey = credential,
+                            )
+                            AuthMode.BEARER_TOKEN -> apiService.getTvSeasonVideos(
+                                tvId = tvId,
+                                seasonNumber = targetSeasonNumber,
+                                bearerAuth = "Bearer $credential",
+                            )
+                        }.toBestYoutubeTrailer()
+                    }.getOrNull()
+                } else null
+
+                val chosenTrailer = seasonTrailer ?: seriesTrailerDeferred?.await()
+
+                val built = rawDto.toDetails(
                     images = imagesDeferred?.await() ?: MediaImages(),
                     watchProvidersIN = providersDeferred?.await(),
-                    trailerVideo = trailerDeferred?.await(),
+                    trailerVideo = chosenTrailer,
                 )
+                tvBaseDetailsCache[tvId] = built
+                if (includeImagesAndProviders) {
+                    tvFullDetailsCache[tvId] = built
+                }
+                built
             }
         }
+    }
+
+    suspend fun getSeasonEpisodes(
+        tvId: Long,
+        seasonNumber: Int,
+    ): Result<TvSeasonDetail> {
+        val cacheKey = "$tvId:$seasonNumber"
+        seasonEpisodesCache[cacheKey]?.let { return Result.success(it) }
+        return runTmdbCallWithFallback { credential, mode ->
+            val dto = when (mode) {
+                AuthMode.API_KEY -> apiService.getTvSeasonDetails(
+                    tvId = tvId,
+                    seasonNumber = seasonNumber,
+                    apiKey = credential,
+                )
+                AuthMode.BEARER_TOKEN -> apiService.getTvSeasonDetails(
+                    tvId = tvId,
+                    seasonNumber = seasonNumber,
+                    bearerAuth = "Bearer $credential",
+                )
+            }
+            val model = dto.toModel(tvId)
+            seasonEpisodesCache[cacheKey] = model
+            model
+        }
+    }
+
+    fun getCachedSeasonEpisodes(tvId: Long, seasonNumber: Int): TvSeasonDetail? =
+        seasonEpisodesCache["$tvId:$seasonNumber"]
 
     suspend fun getRecommendations(
         mediaId: Long,

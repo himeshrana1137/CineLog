@@ -48,6 +48,7 @@ interface TmdbApiService {
         @Query("api_key") apiKey: String? = null,
         @Header("Authorization") bearerAuth: String? = null,
         @Query("language") language: String = "en-US",
+        @Query("include_video_language") includeVideoLanguage: String = "en,null",
     ): TmdbVideosResponse
 
     @GET("movie/{movie_id}/recommendations")
@@ -108,7 +109,26 @@ interface TmdbApiService {
         @Query("api_key") apiKey: String? = null,
         @Header("Authorization") bearerAuth: String? = null,
         @Query("language") language: String = "en-US",
+        @Query("include_video_language") includeVideoLanguage: String = "en,null",
     ): TmdbVideosResponse
+
+    @GET("tv/{tv_id}/season/{season_number}/videos")
+    suspend fun getTvSeasonVideos(
+        @Path("tv_id") tvId: Long,
+        @Path("season_number") seasonNumber: Int,
+        @Query("api_key") apiKey: String? = null,
+        @Header("Authorization") bearerAuth: String? = null,
+        @Query("language") language: String = "en-US",
+        @Query("include_video_language") includeVideoLanguage: String = "en,null",
+    ): TmdbVideosResponse
+
+    @GET("trending/all/week")
+    suspend fun getTrendingAllWeek(
+        @Query("api_key") apiKey: String? = null,
+        @Header("Authorization") bearerAuth: String? = null,
+        @Query("language") language: String = "en-US",
+        @Query("page") page: Int = 1,
+    ): TmdbTrendingAllResponse
 
     @GET("tv/{tv_id}/recommendations")
     suspend fun getTvRecommendations(
@@ -125,4 +145,13 @@ interface TmdbApiService {
         @Query("api_key") apiKey: String? = null,
         @Header("Authorization") bearerAuth: String? = null,
     ): TmdbWatchProvidersResponse
+
+    @GET("tv/{tv_id}/season/{season_number}")
+    suspend fun getTvSeasonDetails(
+        @Path("tv_id") tvId: Long,
+        @Path("season_number") seasonNumber: Int,
+        @Query("api_key") apiKey: String? = null,
+        @Header("Authorization") bearerAuth: String? = null,
+        @Query("language") language: String = "en-US",
+    ): TmdbSeasonDetailDto
 }

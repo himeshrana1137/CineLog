@@ -3,7 +3,7 @@ package com.example.ui.screens
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.gestures.snapping.rememberSnapFlingBehavior
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -12,15 +12,19 @@ import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -57,8 +61,14 @@ import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
+import androidx.compose.material3.Snackbar
+import androidx.compose.material3.SnackbarDuration
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
@@ -80,17 +90,25 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.example.R
 import com.example.data.model.CastMember
 import com.example.data.model.MediaType
 import com.example.data.model.QuickReaction
 import com.example.data.model.TmdbImageItem
+import com.example.data.model.TvProgressCalculator
+import com.example.data.model.TvSeasonSummary
 import com.example.data.model.WatchProviderInfo
 import com.example.data.model.WatchProvidersRegion
 import com.example.data.model.WatchedMovie
+import com.example.data.model.WatchedSeason
+import com.example.ui.CineSnackbarEvent
+import com.example.ui.EarlierSeasonsPrompt
 import com.example.ui.MovieModalState
+import com.example.ui.SeasonEpisodesLoadState
 import com.example.ui.components.InteractiveStarRatingBar
+import com.example.ui.components.TvSeasonEpisodeSection
 import com.example.ui.components.YouTubeTrailerPlayer
 import com.example.ui.theme.CineCharcoal
 import com.example.ui.theme.CineElevated
@@ -99,6 +117,7 @@ import com.example.ui.theme.CineEmeraldContainer
 import com.example.ui.theme.CineGold
 import com.example.ui.theme.CineObsidian
 import com.example.ui.theme.CineSurfaceHigh
+import kotlinx.coroutines.flow.SharedFlow
 import java.util.Locale
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
@@ -106,6 +125,12 @@ import java.util.Locale
 fun MovieDetailsSheet(
     modalState: MovieModalState,
     watchedMovie: WatchedMovie?,
+    watchedSeasonsMap: Map<Int, WatchedSeason>,
+    seasonEpisodeStates: Map<Int, SeasonEpisodesLoadState>,
+    isSavingTvProgress: Boolean,
+    earlierSeasonsPrompt: EarlierSeasonsPrompt?,
+    snackbarMessages: SharedFlow<String>? = null,
+    snackbarEvents: SharedFlow<CineSnackbarEvent>? = null,
     isInWatchlist: Boolean,
     isTogglingWatched: Boolean,
     isTogglingWatchlist: Boolean,
@@ -117,9 +142,37 @@ fun MovieDetailsSheet(
     onRemoveWatchDate: (WatchedMovie, Int) -> Unit,
     onShareCard: ((WatchedMovie) -> Unit)?,
     onOpenImageGalleryItem: (String, TmdbImageItem) -> Unit,
+    onExpandSeason: (Int) -> Unit,
+    onRetrySeason: (Int) -> Unit,
+    onToggleSeasonWatched: (TvSeasonSummary) -> Unit,
+    onToggleEpisodeWatched: (TvSeasonSummary, Int) -> Unit,
+    onMarkAllSeasonsWatched: () -> Unit,
+    onResetTvProgress: () -> Unit,
+    onConfirmEarlierSeasons: (Boolean) -> Unit,
+    onDismissEarlierPrompt: () -> Unit,
     onSaveReview: (userRating: Int, note: String, watchedSeason: Int, reaction: String) -> Unit,
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val sheetSnackbarHostState = remember { SnackbarHostState() }
+    LaunchedEffect(snackbarEvents, snackbarMessages) {
+        if (snackbarEvents != null) {
+            snackbarEvents.collect { event ->
+                val result = sheetSnackbarHostState.showSnackbar(
+                    message = event.message,
+                    actionLabel = event.actionLabel,
+                    withDismissAction = event.actionLabel != null,
+                    duration = if (event.actionLabel != null) SnackbarDuration.Long else SnackbarDuration.Short,
+                )
+                if (result == SnackbarResult.ActionPerformed) {
+                    event.onAction?.invoke()
+                }
+            }
+        } else {
+            snackbarMessages?.collect { msg ->
+                sheetSnackbarHostState.showSnackbar(msg)
+            }
+        }
+    }
     val summary = modalState.summary
     val details = modalState.details
     val isWatched = watchedMovie != null
@@ -157,8 +210,14 @@ fun MovieDetailsSheet(
         sheetState = sheetState,
         containerColor = CineCharcoal,
         contentColor = MaterialTheme.colorScheme.onSurface,
+        contentWindowInsets = { WindowInsets(0, 0, 0, 0) },
         dragHandle = null,
     ) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .statusBarsPadding(),
+        ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
@@ -510,6 +569,7 @@ fun MovieDetailsSheet(
                                 onClick = onToggleWatched,
                                 enabled = !isTogglingWatched,
                                 shape = RoundedCornerShape(12.dp),
+                                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp),
                                 modifier = Modifier
                                     .weight(1f)
                                     .height(48.dp)
@@ -525,9 +585,15 @@ fun MovieDetailsSheet(
                                     Icon(
                                         imageVector = Icons.Rounded.Add,
                                         contentDescription = null,
+                                        modifier = Modifier.size(18.dp),
                                     )
                                     Spacer(modifier = Modifier.width(6.dp))
-                                    Text(stringResource(R.string.mark_as_watched))
+                                    Text(
+                                        text = stringResource(R.string.watched_badge),
+                                        maxLines = 1,
+                                        softWrap = false,
+                                        overflow = TextOverflow.Ellipsis,
+                                    )
                                 }
                             }
 
@@ -535,7 +601,9 @@ fun MovieDetailsSheet(
                                 onClick = onToggleWatchlist,
                                 enabled = !isTogglingWatchlist,
                                 shape = RoundedCornerShape(12.dp),
+                                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp),
                                 modifier = Modifier
+                                    .weight(1f)
                                     .height(48.dp)
                                     .testTag("modal_watchlist_button"),
                             ) {
@@ -552,8 +620,11 @@ fun MovieDetailsSheet(
                                     )
                                     Spacer(modifier = Modifier.width(6.dp))
                                     Text(
-                                        if (isInWatchlist) stringResource(R.string.in_watchlist)
-                                        else "Watchlist"
+                                        text = if (isInWatchlist) stringResource(R.string.in_watchlist)
+                                        else "Watchlist",
+                                        maxLines = 1,
+                                        softWrap = false,
+                                        overflow = TextOverflow.Ellipsis,
                                     )
                                 }
                             }
@@ -657,69 +728,54 @@ fun MovieDetailsSheet(
                     }
                 }
 
-                // Personal Rating, Quick Emoji Reaction, Season Watched (for TV) & Watch Note card
+                // Season & Episode-Wise Progress Tracker for TV Series
+                if (isTv) {
+                    TvSeasonEpisodeSection(
+                        tvId = modalState.movieId,
+                        seasons = details?.seasons.orEmpty(),
+                        watchedMovie = watchedMovie,
+                        watchedSeasonsMap = watchedSeasonsMap,
+                        episodeStates = seasonEpisodeStates,
+                        fallbackSeasonsCount = details?.numberOfSeasons ?: watchedMovie?.numberOfSeasons ?: 0,
+                        fallbackEpisodesCount = details?.numberOfEpisodes ?: watchedMovie?.numberOfEpisodes ?: 0,
+                        avgEpisodeRuntime = details?.runtime ?: watchedMovie?.runtime ?: 0,
+                        isSavingProgress = isSavingTvProgress,
+                        earlierSeasonsPrompt = earlierSeasonsPrompt,
+                        onExpandSeason = onExpandSeason,
+                        onRetrySeason = onRetrySeason,
+                        onToggleSeasonWatched = onToggleSeasonWatched,
+                        onToggleEpisodeWatched = onToggleEpisodeWatched,
+                        onMarkAllSeasonsWatched = onMarkAllSeasonsWatched,
+                        onResetProgress = onResetTvProgress,
+                        onConfirmEarlierSeasons = onConfirmEarlierSeasons,
+                        onDismissEarlierPrompt = onDismissEarlierPrompt,
+                    )
+                }
+
+                // Personal Rating, Quick Emoji Reaction & Watch Note card
                 Surface(
                     color = CineElevated,
                     shape = MaterialTheme.shapes.medium,
                     border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
                     modifier = Modifier.fillMaxWidth(),
                 ) {
+                    val reactionRowState = rememberLazyListState()
                     Column(
-                        modifier = Modifier.padding(16.dp),
+                        modifier = Modifier.padding(vertical = 16.dp),
                         verticalArrangement = Arrangement.spacedBy(10.dp),
                     ) {
-                        if (isTv) {
-                            val availableSeasons = maxOf(
-                                details?.numberOfSeasons ?: 0,
-                                watchedMovie?.numberOfSeasons ?: 0,
-                                draftSeason,
-                            ).coerceIn(0, 50)
-                            Text(
-                                text = "Season Watched",
-                                style = MaterialTheme.typography.titleMedium,
-                                color = MaterialTheme.colorScheme.onSurface,
-                            )
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .horizontalScroll(rememberScrollState()),
-                                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            ) {
-                                FilterChip(
-                                    selected = draftSeason == 0,
-                                    onClick = { draftSeason = 0 },
-                                    label = { Text("All / Full Series") },
-                                    colors = FilterChipDefaults.filterChipColors(
-                                        selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
-                                        selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                                    ),
-                                    modifier = Modifier.testTag("season_chip_all"),
-                                )
-                                val chipCount = if (availableSeasons > 0) availableSeasons else 5
-                                for (season in 1..chipCount) {
-                                    FilterChip(
-                                        selected = draftSeason == season,
-                                        onClick = { draftSeason = season },
-                                        label = { Text("S$season") },
-                                        colors = FilterChipDefaults.filterChipColors(
-                                            selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
-                                            selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                                        ),
-                                        modifier = Modifier.testTag("season_chip_$season"),
-                                    )
-                                }
-                            }
-                        }
-
                         Text(
                             text = stringResource(R.string.your_rating_label),
                             style = MaterialTheme.typography.titleMedium,
                             color = MaterialTheme.colorScheme.onSurface,
+                            modifier = Modifier.padding(horizontal = 16.dp),
                         )
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.SpaceBetween,
-                            modifier = Modifier.fillMaxWidth(),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 16.dp),
                         ) {
                             InteractiveStarRatingBar(
                                 rating = draftRating,
@@ -732,31 +788,54 @@ fun MovieDetailsSheet(
                             )
                         }
 
-                        // Quick Emoji Reactions selector
+                        // Quick Emoji Reactions selector with full-bleed edge padding & right fade
                         Text(
                             text = "Quick Reaction",
                             style = MaterialTheme.typography.titleMedium,
                             color = MaterialTheme.colorScheme.onSurface,
+                            modifier = Modifier.padding(horizontal = 16.dp),
                         )
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .horizontalScroll(rememberScrollState()),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        ) {
-                            QuickReaction.entries.forEach { reaction ->
-                                val selected = draftReaction == reaction.key
-                                FilterChip(
-                                    selected = selected,
-                                    onClick = {
-                                        draftReaction = if (selected) "" else reaction.key
-                                    },
-                                    label = { Text("${reaction.emoji} ${reaction.label}") },
-                                    colors = FilterChipDefaults.filterChipColors(
-                                        selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
-                                        selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                                    ),
-                                    modifier = Modifier.testTag("modal_reaction_${reaction.key}"),
+                        Box(modifier = Modifier.fillMaxWidth()) {
+                            LazyRow(
+                                state = reactionRowState,
+                                contentPadding = PaddingValues(horizontal = 16.dp),
+                                flingBehavior = rememberSnapFlingBehavior(lazyListState = reactionRowState),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                modifier = Modifier.fillMaxWidth(),
+                            ) {
+                                items(QuickReaction.entries, key = { it.key }) { reaction ->
+                                    val selected = draftReaction == reaction.key
+                                    FilterChip(
+                                        selected = selected,
+                                        onClick = {
+                                            draftReaction = if (selected) "" else reaction.key
+                                        },
+                                        label = {
+                                            Text(
+                                                text = "${reaction.emoji} ${reaction.label}",
+                                                maxLines = 1,
+                                                softWrap = false,
+                                            )
+                                        },
+                                        colors = FilterChipDefaults.filterChipColors(
+                                            selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
+                                            selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                                        ),
+                                        modifier = Modifier.testTag("modal_reaction_${reaction.key}"),
+                                    )
+                                }
+                            }
+                            if (reactionRowState.canScrollForward) {
+                                Box(
+                                    modifier = Modifier
+                                        .align(Alignment.CenterEnd)
+                                        .width(28.dp)
+                                        .height(40.dp)
+                                        .background(
+                                            Brush.horizontalGradient(
+                                                colors = listOf(Color.Transparent, CineElevated)
+                                            )
+                                        )
                                 )
                             }
                         }
@@ -777,8 +856,43 @@ fun MovieDetailsSheet(
                             ),
                             modifier = Modifier
                                 .fillMaxWidth()
+                                .padding(horizontal = 16.dp)
                                 .testTag("personal_note_input"),
                         )
+
+                        if (isTv) {
+                            val seasonsList = details?.seasons.orEmpty()
+                            val computedProgress = remember(
+                                seasonsList,
+                                watchedSeasonsMap,
+                                details?.numberOfSeasons,
+                                details?.numberOfEpisodes,
+                                details?.runtime,
+                            ) {
+                                TvProgressCalculator.compute(
+                                    seasons = seasonsList,
+                                    seasonDocs = watchedSeasonsMap,
+                                    fallbackTotalSeasons = details?.numberOfSeasons ?: watchedMovie?.numberOfSeasons ?: 0,
+                                    fallbackTotalEpisodes = details?.numberOfEpisodes ?: watchedMovie?.numberOfEpisodes ?: 0,
+                                    fallbackAvgEpisodeRuntime = details?.runtime ?: watchedMovie?.runtime ?: 0,
+                                )
+                            }
+                            val tvSummaryText = when {
+                                computedProgress.totalSeasons > 0 || computedProgress.totalEpisodes > 0 ->
+                                    "Season ${computedProgress.currentSeason} of ${computedProgress.totalSeasons.coerceAtLeast(1)} • Episodes ${computedProgress.watchedEpisodesCount} / ${computedProgress.totalEpisodes}"
+                                else -> watchedMovie?.formatTvProgressSummary()
+                            }
+                            if (!tvSummaryText.isNullOrBlank()) {
+                                Text(
+                                    text = tvSummaryText,
+                                    style = MaterialTheme.typography.labelLarge,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier
+                                        .padding(horizontal = 16.dp)
+                                        .testTag("tv_save_review_progress_summary"),
+                                )
+                            }
+                        }
 
                         Button(
                             onClick = {
@@ -788,6 +902,7 @@ fun MovieDetailsSheet(
                             shape = RoundedCornerShape(10.dp),
                             modifier = Modifier
                                 .fillMaxWidth()
+                                .padding(horizontal = 16.dp)
                                 .height(48.dp)
                                 .testTag("save_review_button"),
                         ) {
@@ -801,7 +916,7 @@ fun MovieDetailsSheet(
                                 Text(stringResource(R.string.saving_review))
                             } else {
                                 Text(
-                                    text = if (isWatched) {
+                                    text = if (isTv || isWatched) {
                                         stringResource(R.string.save_review)
                                     } else {
                                         "Mark Watched & Save Review"
@@ -827,9 +942,12 @@ fun MovieDetailsSheet(
                     IndiaWatchProvidersSection(providersIN = providersIN)
                 }
 
-                // Synopsis
+                // Synopsis (15sp readable + Read more after 4 lines)
                 val overview = details?.overview?.takeIf { it.isNotBlank() } ?: summary.overview
                 if (overview.isNotBlank()) {
+                    var isSynopsisExpanded by remember(modalState.uniqueKey) { mutableStateOf(false) }
+                    var hasSynopsisOverflow by remember(modalState.uniqueKey, overview) { mutableStateOf(false) }
+
                     HorizontalDivider(color = MaterialTheme.colorScheme.outline)
                     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                         Text(
@@ -839,9 +957,36 @@ fun MovieDetailsSheet(
                         )
                         Text(
                             text = overview,
-                            style = MaterialTheme.typography.bodyLarge,
+                            style = MaterialTheme.typography.bodyMedium.copy(
+                                fontSize = 15.sp,
+                                lineHeight = 22.sp,
+                            ),
                             color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.9f),
+                            maxLines = if (isSynopsisExpanded) Int.MAX_VALUE else 4,
+                            overflow = TextOverflow.Ellipsis,
+                            onTextLayout = { result ->
+                                if (!isSynopsisExpanded) {
+                                    hasSynopsisOverflow = result.hasVisualOverflow || result.lineCount > 4
+                                }
+                            },
+                            modifier = Modifier.testTag("synopsis_text"),
                         )
+                        if (hasSynopsisOverflow || isSynopsisExpanded) {
+                            TextButton(
+                                onClick = { isSynopsisExpanded = !isSynopsisExpanded },
+                                contentPadding = PaddingValues(horizontal = 4.dp, vertical = 2.dp),
+                                modifier = Modifier
+                                    .minimumInteractiveComponentSize()
+                                    .testTag("synopsis_toggle_button"),
+                            ) {
+                                Text(
+                                    text = if (isSynopsisExpanded) "Show less" else "Read more",
+                                    style = MaterialTheme.typography.labelLarge,
+                                    color = MaterialTheme.colorScheme.primary,
+                                    fontWeight = FontWeight.SemiBold,
+                                )
+                            }
+                        }
                     }
                 }
 
@@ -933,7 +1078,23 @@ fun MovieDetailsSheet(
                     }
                 }
 
-                Spacer(modifier = Modifier.height(12.dp))
+                Spacer(modifier = Modifier.height(48.dp))
+            }
+        }
+
+            SnackbarHost(
+                hostState = sheetSnackbarHostState,
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .navigationBarsPadding()
+                    .padding(16.dp),
+            ) { data ->
+                Snackbar(
+                    snackbarData = data,
+                    containerColor = CineElevated,
+                    contentColor = MaterialTheme.colorScheme.onSurface,
+                    actionColor = MaterialTheme.colorScheme.primary,
+                )
             }
         }
     }

@@ -83,6 +83,35 @@
           "type": "integer",
           "description": "Specific season watched by the user (0 = full show / unspecified, 1+ = specific season)."
         },
+        "status": {
+          "type": "string",
+          "enum": ["", "NOT_STARTED", "WATCHING", "COMPLETED"],
+          "description": "Auto-calculated TV series watch status."
+        },
+        "watchedEpisodesCount": {
+          "type": "integer",
+          "description": "Total regular episodes watched across seasons for a TV show."
+        },
+        "watchedSeasonsCount": {
+          "type": "integer",
+          "description": "Total regular seasons marked as completed for a TV show."
+        },
+        "watchedRuntimeMinutes": {
+          "type": "integer",
+          "description": "Sum of episode runtimes (or fallback average runtime) across watched episodes for a TV show."
+        },
+        "nextUpSeason": {
+          "type": "integer",
+          "description": "Next unwatched aired season number when series status is WATCHING."
+        },
+        "nextUpEpisode": {
+          "type": "integer",
+          "description": "Next unwatched episode number within nextUpSeason when series status is WATCHING."
+        },
+        "currentSeason": {
+          "type": "integer",
+          "description": "Current active or highest tracked season number."
+        },
         "watchLog": {
           "type": "array",
           "description": "Ordered list of ISO-8601 watch/rewatch date strings (YYYY-MM-DD)."
@@ -229,7 +258,7 @@
     },
     "UserSettings": {
       "title": "UserSettings",
-      "description": "Per-user CineLog preferences including custom theme accent color.",
+      "description": "Per-user CineLog preferences including custom theme accent color and TV migration flag.",
       "type": "object",
       "properties": {
         "userId": {
@@ -245,6 +274,10 @@
           "type": "string",
           "description": "Hex color code (#RRGGBB)."
         },
+        "tvMigrationCompleted": {
+          "type": "boolean",
+          "description": "Whether legacy TV shows have been migrated to season-wise tracking."
+        },
         "updatedAt": {
           "type": "string",
           "format": "date-time",
@@ -257,6 +290,60 @@
         "accentHex",
         "updatedAt"
       ]
+    },
+    "WatchedSeason": {
+      "title": "WatchedSeason",
+      "description": "Season-wise and episode-wise watch progress for a TV series under users/{uid}/watched/{watchedId}/seasons/{seasonNumber}.",
+      "type": "object",
+      "properties": {
+        "userId": {
+          "type": "string",
+          "description": "UID of the authenticated user who owns this season entry."
+        },
+        "tvId": {
+          "type": "integer",
+          "description": "TMDB numeric TV show ID."
+        },
+        "seasonNumber": {
+          "type": "integer",
+          "description": "Season number (0 for specials, 1+ for regular seasons)."
+        },
+        "episodeCount": {
+          "type": "integer",
+          "description": "Total episode count for this season from TMDB."
+        },
+        "watched": {
+          "type": "boolean",
+          "description": "True when all episodes in this season are watched."
+        },
+        "watchedEpisodes": {
+          "type": "array",
+          "description": "List of watched episode numbers in this season."
+        },
+        "watchedRuntimeMinutes": {
+          "type": "integer",
+          "description": "Total watched minutes accumulated in this season."
+        },
+        "watchedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Timestamp when season was completed (nullable when incomplete)."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp of the latest update."
+        }
+      },
+      "required": [
+        "userId",
+        "tvId",
+        "seasonNumber",
+        "episodeCount",
+        "watched",
+        "watchedEpisodes",
+        "updatedAt"
+      ]
     }
   },
   "firestore": {
@@ -265,6 +352,12 @@
         "$ref": "#/entities/WatchedMovie"
       },
       "description": "Per-user subcollection of watched movies and TV shows keyed by movieId (for movies) or tv_{id} (for TV shows)."
+    },
+    "/users/{userId}/watched/{watchedId}/seasons/{seasonNumber}": {
+      "schema": {
+        "$ref": "#/entities/WatchedSeason"
+      },
+      "description": "Per-user subcollection of season and episode watch progress for a tracked TV series."
     },
     "/users/{userId}/watchlist/{watchlistId}": {
       "schema": {

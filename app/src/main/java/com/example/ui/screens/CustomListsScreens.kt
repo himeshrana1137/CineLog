@@ -160,7 +160,7 @@ fun CustomListsTabContent(
                     val gridCols = if (columnsCount >= 3) 2 else 1
                     LazyVerticalGrid(
                         columns = GridCells.Fixed(gridCols),
-                        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 24.dp),
+                        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 96.dp),
                         horizontalArrangement = Arrangement.spacedBy(12.dp),
                         verticalArrangement = Arrangement.spacedBy(12.dp),
                         modifier = Modifier.fillMaxSize(),

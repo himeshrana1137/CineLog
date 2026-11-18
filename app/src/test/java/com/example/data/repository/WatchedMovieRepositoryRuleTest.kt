@@ -7,6 +7,8 @@ import com.example.data.model.MediaType
 import com.example.data.model.MovieDetails
 import com.example.data.model.MovieSummary
 import com.example.data.model.QuickReaction
+import com.example.data.model.TvComputedProgress
+import com.example.data.model.TvWatchStatus
 import com.google.firebase.firestore.FirebaseFirestoreException
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
@@ -384,6 +386,132 @@ class WatchedMovieRepositoryRuleTest : FirestoreEmulatorTestBase() {
             aliceCustomList.deleteList(aliceListId)
             Unit
         }
+    }
+
+    @Test
+    fun tvProgressBatch_saveObserveReset_andCrossUserSeasonDenial_succeeds() = runBlocking {
+        val aliceUid = signInTestUser(ALICE_EMAIL)
+        val watchedRepo = WatchedMovieRepository(firestore, auth)
+        val tvProgressRepo = TvProgressRepository(firestore, auth)
+
+        val summary = sampleTvSummary(1396L)
+        val details = MovieDetails(
+            movieId = 1396L,
+            mediaType = MediaType.TV,
+            title = "Breaking Bad",
+            posterPath = "/ggFHVNu6YYI5L9pCfOacjizRGt.jpg",
+            backdropPath = null,
+            releaseDate = "2008-01-20",
+            rating = 8.9,
+            overview = "Chemistry teacher turned kingpin.",
+            runtime = 47,
+            genres = listOf("Drama", "Crime"),
+            cast = listOf(CastMember(17419L, "Bryan Cranston", "Walter White", null)),
+            directors = listOf("Vince Gilligan"),
+            originalLanguage = "en",
+            numberOfSeasons = 2,
+            numberOfEpisodes = 20,
+        )
+
+        val initialProgress = TvComputedProgress(
+            status = TvWatchStatus.WATCHING,
+            totalSeasons = 2,
+            totalEpisodes = 20,
+            watchedEpisodesCount = 8,
+            watchedSeasonsCount = 1,
+            watchedRuntimeMinutes = 376,
+            currentSeason = 2,
+            nextUpSeason = 2,
+            nextUpEpisode = 2,
+        )
+
+        val saveBatchRes = withTimeout(DEFAULT_TIMEOUT_MS) {
+            tvProgressRepo.saveTvProgressBatch(
+                summary = summary,
+                details = details,
+                existingWatched = null,
+                seasonWrites = listOf(
+                    SeasonBatchWrite(
+                        seasonNumber = 1,
+                        episodeCount = 7,
+                        watched = true,
+                        watchedEpisodes = (1..7).toList(),
+                        watchedRuntimeMinutes = 329,
+                    ),
+                    SeasonBatchWrite(
+                        seasonNumber = 2,
+                        episodeCount = 13,
+                        watched = false,
+                        watchedEpisodes = listOf(1),
+                        watchedRuntimeMinutes = 47,
+                    ),
+                ),
+                progress = initialProgress,
+            )
+        }
+        assertTrue("Expected saveTvProgressBatch to succeed: ${saveBatchRes.exceptionOrNull()}", saveBatchRes.isSuccess)
+
+        val observedSeasons = withTimeout(FLOW_TIMEOUT_MS) {
+            tvProgressRepo.observeSeasonsForShow(aliceUid, 1396L).first { it.size == 2 }
+        }
+        assertTrue(observedSeasons.first { it.seasonNumber == 1 }.watched)
+        assertEquals(listOf(1), observedSeasons.first { it.seasonNumber == 2 }.watchedEpisodes)
+
+        val fetchedShow = withTimeout(DEFAULT_TIMEOUT_MS) {
+            watchedRepo.getWatchedMovie(1396L, MediaType.TV).getOrThrow()
+        }
+        assertNotNull(fetchedShow)
+        assertEquals("WATCHING", fetchedShow?.status)
+        assertEquals(8, fetchedShow?.watchedEpisodesCount)
+        assertEquals(2, fetchedShow?.nextUpSeason)
+        assertEquals(2, fetchedShow?.nextUpEpisode)
+
+        // Verify Bob cannot read or write Alice's season subcollection
+        signInTestUser(BOB_EMAIL)
+        var crossReadEx: FirebaseFirestoreException? = null
+        try {
+            withTimeout(DEFAULT_TIMEOUT_MS) {
+                firestore.collection("users").document(aliceUid)
+                    .collection("watched").document("tv_1396")
+                    .collection("seasons").document("1")
+                    .get()
+                    .await()
+            }
+        } catch (e: FirebaseFirestoreException) {
+            crossReadEx = e
+        }
+        assertNotNull("Expected cross-user season read to fail", crossReadEx)
+        assertEquals(FirebaseFirestoreException.Code.PERMISSION_DENIED, crossReadEx!!.code)
+
+        // Sign back in as Alice, reset progress, and remove show
+        signInTestUser(ALICE_EMAIL)
+        val resetRes = withTimeout(DEFAULT_TIMEOUT_MS) {
+            tvProgressRepo.saveTvProgressBatch(
+                summary = summary,
+                details = details,
+                existingWatched = fetchedShow,
+                seasonWrites = emptyList(),
+                deleteSeasonNumbers = listOf(1, 2),
+                progress = TvComputedProgress(
+                    status = TvWatchStatus.NOT_STARTED,
+                    totalSeasons = 2,
+                    totalEpisodes = 20,
+                    watchedEpisodesCount = 0,
+                    watchedSeasonsCount = 0,
+                    watchedRuntimeMinutes = 0,
+                    currentSeason = 1,
+                    nextUpSeason = 0,
+                    nextUpEpisode = 0,
+                ),
+            )
+        }
+        assertTrue("Expected reset batch to succeed: ${resetRes.exceptionOrNull()}", resetRes.isSuccess)
+        val remainingSeasons = withTimeout(DEFAULT_TIMEOUT_MS) {
+            tvProgressRepo.getSeasonsForShow(1396L).getOrThrow()
+        }
+        assertTrue(remainingSeasons.isEmpty())
+
+        assertTrue(withTimeout(DEFAULT_TIMEOUT_MS) { watchedRepo.removeFromWatched(1396L, MediaType.TV) }.isSuccess)
     }
 
     private companion object {

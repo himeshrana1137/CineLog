@@ -8,7 +8,6 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -36,8 +35,10 @@ import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.PrimaryTabRow
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Snackbar
+import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -67,6 +68,7 @@ import com.example.auth.signOutUser
 import com.example.data.firebase.FirestoreProvider
 import com.example.data.repository.CustomListRepository
 import com.example.data.repository.TmdbRepository
+import com.example.data.repository.TvProgressRepository
 import com.example.data.repository.UserSettingsRepository
 import com.example.data.repository.WatchedMovieRepository
 import com.example.data.repository.WatchlistRepository
@@ -75,6 +77,7 @@ import com.example.ui.CineLogViewModel
 import com.example.ui.ListsSubTab
 import com.example.ui.components.CineTopNavbar
 import com.example.ui.components.OfflineModeBanner
+import com.example.ui.components.formatGoogleProfilePhotoUrl
 import com.example.ui.theme.CineCharcoal
 import com.example.ui.theme.CineElevated
 import com.example.util.NetworkMonitor
@@ -141,6 +144,7 @@ fun MainCinemaScreen(
                 CineLogViewModel(
                     tmdbRepository = TmdbRepository(),
                     watchedRepository = WatchedMovieRepository(db),
+                    tvProgressRepository = TvProgressRepository(db),
                     watchlistRepository = WatchlistRepository(db),
                     customListRepository = CustomListRepository(db),
                     settingsRepository = UserSettingsRepository(app),
@@ -185,6 +189,7 @@ fun MainCinemaScreen(
     val surpriseMeState by viewModel.surpriseMeState.collectAsStateWithLifecycle()
     val showImportExportDialog by viewModel.showImportExportDialog.collectAsStateWithLifecycle()
     val importUiState by viewModel.importUiState.collectAsStateWithLifecycle()
+    val statsMediaFilter by viewModel.statsMediaFilter.collectAsStateWithLifecycle()
     val statsSummary by viewModel.statsSummary.collectAsStateWithLifecycle()
     val migrationState by viewModel.migrationState.collectAsStateWithLifecycle()
     val watchProvidersCache by viewModel.watchProvidersCache.collectAsStateWithLifecycle()
@@ -192,6 +197,10 @@ fun MainCinemaScreen(
     val pendingWatchlistKeys by viewModel.pendingWatchlistKeys.collectAsStateWithLifecycle()
     val accentPreference by viewModel.accentPreference.collectAsStateWithLifecycle()
     val movieModal by viewModel.movieModal.collectAsStateWithLifecycle()
+    val modalTvSeasons by viewModel.modalTvSeasons.collectAsStateWithLifecycle()
+    val seasonEpisodesStates by viewModel.seasonEpisodesStates.collectAsStateWithLifecycle()
+    val isSavingTvProgress by viewModel.isSavingTvProgress.collectAsStateWithLifecycle()
+    val earlierSeasonsPrompt by viewModel.earlierSeasonsPrompt.collectAsStateWithLifecycle()
     val socialCardMovie by viewModel.socialCardMovie.collectAsStateWithLifecycle()
     val wallpaperEditorImage by viewModel.wallpaperEditorImage.collectAsStateWithLifecycle()
     val selectedPersonStat by viewModel.selectedPersonStat.collectAsStateWithLifecycle()
@@ -203,15 +212,27 @@ fun MainCinemaScreen(
     val snackbarHostState = remember { SnackbarHostState() }
 
     LaunchedEffect(viewModel) {
-        viewModel.snackbarMessages.collect { message ->
-            snackbarHostState.showSnackbar(message)
+        viewModel.snackbarEvents.collect { event ->
+            if (viewModel.movieModal.value == null) {
+                val result = snackbarHostState.showSnackbar(
+                    message = event.message,
+                    actionLabel = event.actionLabel,
+                    withDismissAction = event.actionLabel != null,
+                    duration = if (event.actionLabel != null) SnackbarDuration.Long else SnackbarDuration.Short,
+                )
+                if (result == SnackbarResult.ActionPerformed) {
+                    event.onAction?.invoke()
+                }
+            }
         }
     }
 
     val displayName = currentUser.displayName?.takeIf { it.isNotBlank() }
         ?: currentUser.email?.substringBefore("@")
         ?: "Cinephile"
-    val photoUrl = currentUser.photoUrl?.toString()
+    val photoUrl = remember(currentUser.photoUrl) {
+        formatGoogleProfilePhotoUrl(currentUser.photoUrl?.toString())
+    }
 
     BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
         val useTopTabs = maxWidth >= 840.dp
@@ -229,8 +250,7 @@ fun MainCinemaScreen(
                     CineTopNavbar(
                         userName = displayName,
                         userPhotoUrl = photoUrl,
-                        watchedCount = watchedCount,
-                        onWatchedBadgeClick = { viewModel.selectTab(AppTab.WATCHED) },
+                        onOpenSettings = { viewModel.selectTab(AppTab.SETTINGS) },
                         onLogoutClick = {
                             signOutUser(
                                 credentialManager = credentialManager,
@@ -293,7 +313,6 @@ fun MainCinemaScreen(
                     NavigationBar(
                         containerColor = CineCharcoal,
                         contentColor = MaterialTheme.colorScheme.onSurface,
-                        modifier = Modifier.navigationBarsPadding(),
                     ) {
                         NAV_TABS.forEach { meta ->
                             val isSelected = selectedTab == meta.tab
@@ -347,6 +366,7 @@ fun MainCinemaScreen(
                         snackbarData = data,
                         containerColor = CineElevated,
                         contentColor = MaterialTheme.colorScheme.onSurface,
+                        actionColor = MaterialTheme.colorScheme.primary,
                     )
                 }
             },
@@ -510,7 +530,10 @@ fun MainCinemaScreen(
                     AppTab.STATS -> {
                         StatsScreen(
                             stats = statsSummary,
+                            selectedFilter = statsMediaFilter,
+                            totalAllWatchedCount = watchedCount,
                             isMigrating = migrationState.isRunning,
+                            onFilterSelected = viewModel::selectStatsMediaFilter,
                             onPersonClick = viewModel::openPersonDetails,
                             onRunMigrationClick = viewModel::runOldDataMigration,
                             onExploreClick = { viewModel.selectTab(AppTab.DISCOVER) },
@@ -521,6 +544,7 @@ fun MainCinemaScreen(
                         SettingsScreen(
                             userName = displayName,
                             userEmail = currentUser.email,
+                            userPhotoUrl = photoUrl,
                             isOnline = isOnline,
                             accentPreference = accentPreference,
                             itemsMissingMetadataCount = statsSummary.itemsMissingMetadataCount,
@@ -551,6 +575,12 @@ fun MainCinemaScreen(
         MovieDetailsSheet(
             modalState = modal,
             watchedMovie = watchedMap[modal.uniqueKey],
+            watchedSeasonsMap = modalTvSeasons,
+            seasonEpisodeStates = seasonEpisodesStates,
+            isSavingTvProgress = isSavingTvProgress,
+            earlierSeasonsPrompt = earlierSeasonsPrompt,
+            snackbarMessages = viewModel.snackbarMessages,
+            snackbarEvents = viewModel.snackbarEvents,
             isInWatchlist = watchlistMap.containsKey(modal.uniqueKey),
             isTogglingWatched = pendingToggleKeys.contains(modal.uniqueKey),
             isTogglingWatchlist = pendingWatchlistKeys.contains(modal.uniqueKey),
@@ -576,6 +606,26 @@ fun MainCinemaScreen(
                 viewModel.openSocialCard(watched)
             },
             onOpenImageGalleryItem = viewModel::openWallpaperEditor,
+            onExpandSeason = { seasonNum ->
+                viewModel.loadSeasonEpisodes(modal.movieId, seasonNum)
+            },
+            onRetrySeason = { seasonNum ->
+                viewModel.loadSeasonEpisodes(modal.movieId, seasonNum, forceRetry = true)
+            },
+            onToggleSeasonWatched = { season ->
+                viewModel.onToggleSeasonWatched(modal.movieId, season)
+            },
+            onToggleEpisodeWatched = { season, epNum ->
+                viewModel.toggleEpisodeWatched(modal.movieId, season, epNum)
+            },
+            onMarkAllSeasonsWatched = {
+                viewModel.markAllSeasonsWatched(modal.movieId)
+            },
+            onResetTvProgress = {
+                viewModel.resetTvProgress(modal.movieId)
+            },
+            onConfirmEarlierSeasons = viewModel::confirmMarkEarlierSeasons,
+            onDismissEarlierPrompt = viewModel::dismissEarlierSeasonsPrompt,
             onSaveReview = { rating, note, watchedSeason, reaction ->
                 viewModel.saveReview(
                     movieId = modal.movieId,

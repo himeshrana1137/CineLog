@@ -7,10 +7,14 @@ import com.example.data.model.MediaVideo
 import com.example.data.model.MovieDetails
 import com.example.data.model.MovieSummary
 import com.example.data.model.TmdbImageItem
+import com.example.data.model.TvEpisode
+import com.example.data.model.TvSeasonDetail
+import com.example.data.model.TvSeasonSummary
 import com.example.data.model.WatchProviderInfo
 import com.example.data.model.WatchProvidersRegion
 import com.squareup.moshi.Json
 import com.squareup.moshi.JsonClass
+import kotlin.math.roundToInt
 
 @JsonClass(generateAdapter = true)
 data class TmdbSearchResponse(
@@ -76,6 +80,50 @@ data class TmdbTvDto(
         popularity = popularity,
         originalLanguage = originalLanguage.orEmpty().lowercase(),
     )
+}
+
+@JsonClass(generateAdapter = true)
+data class TmdbTrendingAllResponse(
+    val page: Int = 1,
+    val results: List<TmdbTrendingAllItemDto> = emptyList(),
+)
+
+@JsonClass(generateAdapter = true)
+data class TmdbTrendingAllItemDto(
+    val id: Long,
+    @Json(name = "media_type") val mediaType: String? = null,
+    val title: String? = null,
+    val name: String? = null,
+    @Json(name = "poster_path") val posterPath: String? = null,
+    @Json(name = "backdrop_path") val backdropPath: String? = null,
+    @Json(name = "release_date") val releaseDate: String? = null,
+    @Json(name = "first_air_date") val firstAirDate: String? = null,
+    @Json(name = "vote_average") val voteAverage: Double = 0.0,
+    val overview: String? = null,
+    val popularity: Double = 0.0,
+    @Json(name = "original_language") val originalLanguage: String? = null,
+) {
+    fun toSummaryOrNull(): MovieSummary? {
+        val resolvedType = when (mediaType?.lowercase()) {
+            "movie" -> MediaType.MOVIE
+            "tv" -> MediaType.TV
+            else -> return null
+        }
+        val resolvedTitle = if (resolvedType == MediaType.TV) name else title
+        val resolvedDate = if (resolvedType == MediaType.TV) firstAirDate else releaseDate
+        return MovieSummary(
+            movieId = id,
+            mediaType = resolvedType,
+            title = resolvedTitle?.takeIf { it.isNotBlank() } ?: "Untitled",
+            posterPath = posterPath,
+            backdropPath = backdropPath,
+            releaseDate = resolvedDate.orEmpty(),
+            rating = voteAverage,
+            overview = overview.orEmpty(),
+            popularity = popularity,
+            originalLanguage = originalLanguage.orEmpty().lowercase(),
+        )
+    }
 }
 
 @JsonClass(generateAdapter = true)
@@ -153,6 +201,7 @@ data class TmdbTvDetailDto(
     @Json(name = "number_of_seasons") val numberOfSeasons: Int? = null,
     @Json(name = "number_of_episodes") val numberOfEpisodes: Int? = null,
     @Json(name = "created_by") val createdBy: List<TmdbCreatorDto> = emptyList(),
+    val seasons: List<TmdbSeasonSummaryDto> = emptyList(),
     val credits: TmdbCreditsDto? = null,
 ) {
     fun toDetails(
@@ -172,6 +221,17 @@ data class TmdbTvDetailDto(
             .distinct()
             .take(5)
 
+        val validEpisodeRuntimes = episodeRunTime.filter { it > 0 }
+        val averageEpisodeRuntime = if (validEpisodeRuntimes.isNotEmpty()) {
+            validEpisodeRuntimes.average().roundToInt()
+        } else {
+            0
+        }
+
+        val mappedSeasons = seasons
+            .map { it.toModel() }
+            .sortedBy { it.seasonNumber }
+
         return MovieDetails(
             movieId = id,
             mediaType = MediaType.TV,
@@ -181,7 +241,7 @@ data class TmdbTvDetailDto(
             releaseDate = firstAirDate.orEmpty(),
             rating = voteAverage,
             overview = overview.orEmpty(),
-            runtime = episodeRunTime.firstOrNull { it > 0 } ?: 0,
+            runtime = averageEpisodeRuntime,
             genres = genres.map { it.name }.filter { it.isNotBlank() }.take(10),
             cast = credits?.cast.orEmpty()
                 .sortedBy { it.order ?: Int.MAX_VALUE }
@@ -197,13 +257,75 @@ data class TmdbTvDetailDto(
             directors = combinedDirectors,
             originalLanguage = originalLanguage.orEmpty().lowercase(),
             tagline = tagline.orEmpty(),
-            numberOfSeasons = numberOfSeasons ?: 0,
-            numberOfEpisodes = numberOfEpisodes ?: 0,
+            numberOfSeasons = numberOfSeasons ?: mappedSeasons.count { !it.isSpecial },
+            numberOfEpisodes = numberOfEpisodes ?: mappedSeasons.filter { !it.isSpecial }.sumOf { it.episodeCount },
+            seasons = mappedSeasons,
             images = images,
             watchProvidersIN = watchProvidersIN,
             trailerVideo = trailerVideo,
         )
     }
+}
+
+@JsonClass(generateAdapter = true)
+data class TmdbSeasonSummaryDto(
+    val id: Long = 0L,
+    @Json(name = "season_number") val seasonNumber: Int = 0,
+    val name: String? = null,
+    @Json(name = "episode_count") val episodeCount: Int? = null,
+    @Json(name = "air_date") val airDate: String? = null,
+    @Json(name = "poster_path") val posterPath: String? = null,
+) {
+    fun toModel(): TvSeasonSummary = TvSeasonSummary(
+        seasonNumber = seasonNumber,
+        name = name.orEmpty().ifBlank { if (seasonNumber == 0) "Specials" else "Season $seasonNumber" },
+        episodeCount = (episodeCount ?: 0).coerceAtLeast(0),
+        airDate = airDate.orEmpty(),
+        posterPath = posterPath,
+    )
+}
+
+@JsonClass(generateAdapter = true)
+data class TmdbSeasonDetailDto(
+    val id: Long = 0L,
+    @Json(name = "season_number") val seasonNumber: Int = 0,
+    val name: String? = null,
+    @Json(name = "air_date") val airDate: String? = null,
+    @Json(name = "poster_path") val posterPath: String? = null,
+    val episodes: List<TmdbEpisodeDto> = emptyList(),
+) {
+    fun toModel(tvId: Long): TvSeasonDetail = TvSeasonDetail(
+        tvId = tvId,
+        seasonNumber = seasonNumber,
+        name = name.orEmpty().ifBlank { if (seasonNumber == 0) "Specials" else "Season $seasonNumber" },
+        airDate = airDate.orEmpty(),
+        posterPath = posterPath,
+        episodes = episodes
+            .sortedBy { it.episodeNumber }
+            .map { it.toModel(fallbackSeason = seasonNumber) },
+    )
+}
+
+@JsonClass(generateAdapter = true)
+data class TmdbEpisodeDto(
+    val id: Long = 0L,
+    @Json(name = "episode_number") val episodeNumber: Int = 0,
+    @Json(name = "season_number") val seasonNumber: Int? = null,
+    val name: String? = null,
+    val runtime: Int? = null,
+    @Json(name = "air_date") val airDate: String? = null,
+    @Json(name = "still_path") val stillPath: String? = null,
+    val overview: String? = null,
+) {
+    fun toModel(fallbackSeason: Int): TvEpisode = TvEpisode(
+        episodeNumber = episodeNumber,
+        seasonNumber = seasonNumber ?: fallbackSeason,
+        name = name.orEmpty().ifBlank { "Episode $episodeNumber" },
+        runtime = (runtime ?: 0).coerceAtLeast(0),
+        airDate = airDate.orEmpty(),
+        stillPath = stillPath,
+        overview = overview.orEmpty(),
+    )
 }
 
 @JsonClass(generateAdapter = true)

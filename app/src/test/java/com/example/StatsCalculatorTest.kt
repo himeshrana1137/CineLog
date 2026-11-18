@@ -3,6 +3,7 @@ package com.example
 import com.example.data.model.MediaType
 import com.example.data.model.QuickReaction
 import com.example.data.model.StatsCalculator
+import com.example.data.model.TvWatchStatus
 import com.example.data.model.WatchedMovie
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -113,5 +114,74 @@ class StatsCalculatorTest {
         assertEquals(0, stats.userRatingDistribution.first { it.label == "4★" }.count)
         assertTrue(stats.monthlyWatchStats.any { it.label == "Jan '26" && it.count == 1 })
         assertTrue(stats.monthlyWatchStats.any { it.label == "Mar '26" && it.count == 2 })
+    }
+
+    @Test
+    fun computeStats_calculatesTvWatchTimeFromEpisodesAndAvgFallback() {
+        val watched = listOf(
+            WatchedMovie(
+                movieId = 1396L,
+                mediaType = MediaType.TV.value,
+                title = "Breaking Bad",
+                runtime = 47,
+                status = TvWatchStatus.WATCHING.key,
+                watchedEpisodesCount = 10,
+                watchedRuntimeMinutes = 485,
+            ),
+            WatchedMovie(
+                movieId = 1399L,
+                mediaType = MediaType.TV.value,
+                title = "Game of Thrones",
+                runtime = 55,
+                status = TvWatchStatus.WATCHING.key,
+                watchedEpisodesCount = 4,
+                watchedRuntimeMinutes = 0, // falls back to 4 * 55 = 220
+            ),
+            WatchedMovie(
+                movieId = 9999L,
+                mediaType = MediaType.TV.value,
+                title = "Reset Show",
+                runtime = 45,
+                status = TvWatchStatus.NOT_STARTED.key,
+                watchedEpisodesCount = 0,
+                watchedRuntimeMinutes = 0,
+            ),
+        )
+
+        val stats = StatsCalculator.computeStats(watched)
+
+        assertEquals(3, stats.tvCount)
+        assertEquals(705L, stats.totalMinutes)
+    }
+
+    @Test
+    fun computeStats_allItemsSumInYearAndRatingChartsAndSupportsFilter() {
+        val watched = (1..12).map { idx ->
+            WatchedMovie(
+                movieId = idx.toLong(),
+                mediaType = if (idx <= 10) MediaType.MOVIE.value else MediaType.TV.value,
+                title = "Title $idx",
+                releaseDate = if (idx == 12) "" else "${2000 + idx}-01-01",
+                runtime = 100,
+                userRating = if (idx % 2 == 0) 5 else 0,
+                genres = listOf("Science Fiction"),
+            )
+        }
+
+        val allStats = StatsCalculator.computeStats(watched, com.example.data.model.StatsMediaFilter.ALL)
+        assertEquals(12, allStats.totalTitles)
+        assertEquals(12, allStats.releaseYearStats.sumOf { it.count })
+        assertTrue(allStats.releaseYearStats.any { it.label == "Older" })
+        assertTrue(allStats.releaseYearStats.any { it.label == "Unknown" && it.count == 1 })
+        assertEquals(12, allStats.userRatingDistribution.sumOf { it.count })
+        assertEquals(6, allStats.userRatingDistribution.first { it.label == "Unrated" }.count)
+        assertEquals("Sci-Fi", allStats.genreStats.first().label)
+
+        val tvStats = StatsCalculator.computeStats(watched, com.example.data.model.StatsMediaFilter.TV_SERIES)
+        assertEquals(2, tvStats.totalTitles)
+        assertEquals(0, tvStats.moviesCount)
+        assertEquals(2, tvStats.tvCount)
+        assertEquals(2, tvStats.releaseYearStats.sumOf { it.count })
+        assertEquals(2, tvStats.userRatingDistribution.sumOf { it.count })
     }
 }

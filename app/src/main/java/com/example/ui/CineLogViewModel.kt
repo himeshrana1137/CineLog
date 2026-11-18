@@ -13,16 +13,25 @@ import com.example.data.model.MovieSummary
 import com.example.data.model.PersonStat
 import com.example.data.model.QuickReaction
 import com.example.data.model.StatsCalculator
+import com.example.data.model.StatsMediaFilter
 import com.example.data.model.TmdbImageItem
+import com.example.data.model.TvComputedProgress
+import com.example.data.model.TvProgressCalculator
+import com.example.data.model.TvSeasonDetail
+import com.example.data.model.TvSeasonSummary
+import com.example.data.model.TvWatchStatus
 import com.example.data.model.WatchProvidersRegion
 import com.example.data.model.WatchedMovie
+import com.example.data.model.WatchedSeason
 import com.example.data.model.WatchlistItem
 import com.example.data.model.todayIsoDate
 import com.example.data.repository.BatchWatchedImportItem
 import com.example.data.repository.CustomListRepository
 import com.example.data.repository.LocalAccentPreference
+import com.example.data.repository.SeasonBatchWrite
 import com.example.data.repository.TmdbApiKeyMissingException
 import com.example.data.repository.TmdbRepository
+import com.example.data.repository.TvProgressRepository
 import com.example.data.repository.UserSettingsRepository
 import com.example.data.repository.WatchedMovieRepository
 import com.example.data.repository.WatchlistRepository
@@ -38,6 +47,7 @@ import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -52,6 +62,7 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
@@ -93,9 +104,30 @@ enum class WatchedFilterOption(val label: String) {
     ALL("All"),
     MOVIES("Movies"),
     TV_SHOWS("TV Shows"),
+    WATCHING("Watching"),
+    COMPLETED("Completed"),
     RATED_ONLY("Rated"),
     FIVE_STARS("5★ Favorites"),
 }
+
+sealed interface SeasonEpisodesLoadState {
+    data object Idle : SeasonEpisodesLoadState
+    data object Loading : SeasonEpisodesLoadState
+    data class Success(val detail: TvSeasonDetail) : SeasonEpisodesLoadState
+    data class Error(val message: String) : SeasonEpisodesLoadState
+}
+
+data class EarlierSeasonsPrompt(
+    val tvId: Long,
+    val targetSeason: TvSeasonSummary,
+    val earlierSeasonNumbers: List<Int>,
+)
+
+data class CineSnackbarEvent(
+    val message: String,
+    val actionLabel: String? = null,
+    val onAction: (() -> Unit)? = null,
+)
 
 sealed interface DiscoverUiState {
     data object Loading : DiscoverUiState
@@ -185,6 +217,7 @@ data class MigrationProgressState(
 class CineLogViewModel(
     private val tmdbRepository: TmdbRepository,
     private val watchedRepository: WatchedMovieRepository,
+    private val tvProgressRepository: TvProgressRepository,
     private val watchlistRepository: WatchlistRepository,
     private val customListRepository: CustomListRepository,
     private val settingsRepository: UserSettingsRepository,
@@ -281,8 +314,44 @@ class CineLogViewModel(
     private val _accentPreference = MutableStateFlow(settingsRepository.loadLocalAccent())
     val accentPreference: StateFlow<LocalAccentPreference> = _accentPreference.asStateFlow()
 
+    private val _tvMigrationCompleted = MutableStateFlow<Boolean?>(null)
+    private var tvMigrationStartedThisSession = false
+
+    private val _seasonEpisodesStates = MutableStateFlow<Map<Int, SeasonEpisodesLoadState>>(emptyMap())
+    val seasonEpisodesStates: StateFlow<Map<Int, SeasonEpisodesLoadState>> = _seasonEpisodesStates.asStateFlow()
+
+    private val _earlierSeasonsPrompt = MutableStateFlow<EarlierSeasonsPrompt?>(null)
+    val earlierSeasonsPrompt: StateFlow<EarlierSeasonsPrompt?> = _earlierSeasonsPrompt.asStateFlow()
+
+    private val _isSavingTvProgress = MutableStateFlow(false)
+    val isSavingTvProgress: StateFlow<Boolean> = _isSavingTvProgress.asStateFlow()
+
+    private val _optimisticTvOverrides =
+        MutableStateFlow<Map<Long, Map<Int, WatchedSeason?>>>(emptyMap())
+
+    private val _statsMediaFilter = MutableStateFlow(StatsMediaFilter.ALL)
+    val statsMediaFilter: StateFlow<StatsMediaFilter> = _statsMediaFilter.asStateFlow()
+
     private val _snackbarMessages = MutableSharedFlow<String>(extraBufferCapacity = 16)
     val snackbarMessages: SharedFlow<String> = _snackbarMessages.asSharedFlow()
+
+    private val _snackbarEvents = MutableSharedFlow<CineSnackbarEvent>(extraBufferCapacity = 16)
+    val snackbarEvents: SharedFlow<CineSnackbarEvent> = _snackbarEvents.asSharedFlow()
+
+    private fun emitSnackbar(
+        message: String,
+        actionLabel: String? = null,
+        onAction: (() -> Unit)? = null,
+    ) {
+        _snackbarMessages.tryEmit(message)
+        _snackbarEvents.tryEmit(
+            CineSnackbarEvent(
+                message = message,
+                actionLabel = actionLabel,
+                onAction = onAction,
+            )
+        )
+    }
 
     val isTmdbKeyConfigured: Boolean
         get() = tmdbRepository.isApiKeyConfigured()
@@ -298,6 +367,9 @@ class CineLogViewModel(
                         val pref = LocalAccentPreference(preset = preset, hex = hex)
                         _accentPreference.value = pref
                         settingsRepository.saveLocalAccent(preset, hex)
+                        _tvMigrationCompleted.value = remote.tvMigrationCompleted
+                    } else if (_tvMigrationCompleted.value == null) {
+                        _tvMigrationCompleted.value = false
                     }
                 }
         }
@@ -461,6 +533,8 @@ class CineLogViewModel(
                 WatchedFilterOption.ALL -> true
                 WatchedFilterOption.MOVIES -> !item.isTv
                 WatchedFilterOption.TV_SHOWS -> item.isTv
+                WatchedFilterOption.WATCHING -> item.isTv && item.resolvedTvStatus == TvWatchStatus.WATCHING
+                WatchedFilterOption.COMPLETED -> item.isTv && item.resolvedTvStatus == TvWatchStatus.COMPLETED
                 WatchedFilterOption.RATED_ONLY -> item.userRating > 0
                 WatchedFilterOption.FIVE_STARS -> item.userRating == 5
             }
@@ -618,19 +692,105 @@ class CineLogViewModel(
         initialValue = RecommendationsUiState.Idle,
     )
 
-    // Stats computed live from watched list
-    val statsSummary: StateFlow<CineStatsSummary> = watchedState
-        .map { state ->
-            when (state) {
-                is WatchedUiState.Success -> StatsCalculator.computeStats(state.movies)
-                else -> CineStatsSummary()
+    // Stats computed live from watched list and segmented media filter
+    val statsSummary: StateFlow<CineStatsSummary> = combine(
+        watchedState,
+        _statsMediaFilter,
+    ) { state, filter ->
+        when (state) {
+            is WatchedUiState.Success -> StatsCalculator.computeStats(state.movies, filter)
+            else -> CineStatsSummary()
+        }
+    }.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(STOP_TIMEOUT_MILLIS),
+        initialValue = CineStatsSummary(),
+    )
+
+    // Confirmed server-synced seasons subcollection observer for currently open TV modal
+    private val activeModalTvIdFlow: Flow<Long?> = _movieModal
+        .map { modal -> modal?.takeIf { it.mediaType == MediaType.TV }?.movieId }
+        .distinctUntilChanged()
+
+    private val confirmedModalTvSeasons: Flow<Map<Int, WatchedSeason>> = activeModalTvIdFlow
+        .flatMapLatest { tvId ->
+            if (tvId == null) {
+                kotlinx.coroutines.flow.flowOf(emptyMap())
+            } else {
+                tvProgressRepository.observeSeasonsForShow(currentUserId, tvId)
+                    .map { seasons -> seasons.associateBy { it.seasonNumber } }
+                    .onEach { confirmedMap ->
+                        if (!_isSavingTvProgress.value) {
+                            reconcileOptimisticOverrides(tvId, confirmedMap)
+                        }
+                    }
+                    .catch { error ->
+                        val root = generateSequence(error) { it.cause }
+                            .filterIsInstance<FirebaseFirestoreException>()
+                            .firstOrNull() ?: error
+                        Log.e(TAG, "observeSeasonsForShow failed tvId=$tvId message=${root.message}", root)
+                        emitSnackbar(TvProgressRepository.formatSaveError(root))
+                        emit(emptyMap())
+                    }
             }
         }
-        .stateIn(
-            scope = viewModelScope,
-            started = SharingStarted.WhileSubscribed(STOP_TIMEOUT_MILLIS),
-            initialValue = CineStatsSummary(),
-        )
+
+    // Combined ViewModel UI state: confirmed server seasons + optimistic pending/committed overrides
+    val modalTvSeasons: StateFlow<Map<Int, WatchedSeason>> = combine(
+        activeModalTvIdFlow,
+        confirmedModalTvSeasons,
+        _optimisticTvOverrides,
+    ) { tvId, confirmed, overridesByShow ->
+        if (tvId == null) {
+            emptyMap()
+        } else {
+            val overrides = overridesByShow[tvId].orEmpty()
+            if (overrides.isEmpty()) {
+                confirmed
+            } else {
+                val merged = confirmed.toMutableMap()
+                overrides.forEach { (seasonNum, optDoc) ->
+                    if (optDoc == null) {
+                        merged.remove(seasonNum)
+                    } else {
+                        merged[seasonNum] = optDoc
+                    }
+                }
+                merged
+            }
+        }
+    }.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(STOP_TIMEOUT_MILLIS),
+        initialValue = emptyMap(),
+    )
+
+    private fun reconcileOptimisticOverrides(
+        tvId: Long,
+        confirmedMap: Map<Int, WatchedSeason>,
+    ) {
+        val currentOverrides = _optimisticTvOverrides.value[tvId] ?: return
+        if (currentOverrides.isEmpty()) return
+        val remaining = currentOverrides.filterNot { (seasonNum, optDoc) ->
+            val confirmed = confirmedMap[seasonNum]
+            if (optDoc == null) {
+                confirmed == null
+            } else {
+                confirmed != null &&
+                    confirmed.watched == optDoc.watched &&
+                    confirmed.watchedEpisodes.sorted() == optDoc.watchedEpisodes.sorted()
+            }
+        }
+        if (remaining.size != currentOverrides.size) {
+            val updatedMap = _optimisticTvOverrides.value.toMutableMap()
+            if (remaining.isEmpty()) {
+                updatedMap.remove(tvId)
+            } else {
+                updatedMap[tvId] = remaining
+            }
+            _optimisticTvOverrides.value = updatedMap
+        }
+    }
 
     init {
         viewModelScope.launch {
@@ -650,6 +810,32 @@ class CineLogViewModel(
                     } else if (topSeeds.isEmpty() && _recommendationsState.value !is RecommendationsUiState.Idle) {
                         lastRecommendationSeedKey = ""
                         _recommendationsState.value = RecommendationsUiState.Idle
+                    }
+                }
+            }
+        }
+
+        // One-time background migration for legacy watched TV shows
+        viewModelScope.launch {
+            combine(
+                watchedState,
+                _tvMigrationCompleted,
+                isOnline,
+            ) { wState, migrationDone, online ->
+                Triple(wState, migrationDone, online)
+            }.collect { (wState, migrationDone, online) ->
+                if (
+                    !tvMigrationStartedThisSession &&
+                    migrationDone == false &&
+                    wState is WatchedUiState.Success
+                ) {
+                    val legacyShows = wState.movies.filter { it.isTv && it.status.isBlank() }
+                    if (legacyShows.isEmpty()) {
+                        tvMigrationStartedThisSession = true
+                        settingsRepository.markTvMigrationCompleted()
+                    } else if (online && isTmdbKeyConfigured) {
+                        tvMigrationStartedThisSession = true
+                        runOneTimeLegacyTvMigration(legacyShows)
                     }
                 }
             }
@@ -701,6 +887,10 @@ class CineLogViewModel(
 
     fun selectTab(tab: AppTab) {
         _selectedTab.value = tab
+    }
+
+    fun selectStatsMediaFilter(filter: StatsMediaFilter) {
+        _statsMediaFilter.value = filter
     }
 
     fun selectWatchedSubTab(subTab: WatchedSubTab) {
@@ -799,7 +989,16 @@ class CineLogViewModel(
                         ).getOrNull()
                     } else null
 
-                    watchedRepository.markAsWatched(movie, details).fold(
+                    val result = if (movie.mediaType == MediaType.TV && details != null && details.seasons.isNotEmpty()) {
+                        markTvShowFullyWatchedInternal(
+                            summary = movie,
+                            details = details,
+                            existingWatched = null,
+                        )
+                    } else {
+                        watchedRepository.markAsWatched(movie, details)
+                    }
+                    result.fold(
                         onSuccess = {
                             if (watchlistMap.value.containsKey(key)) {
                                 watchlistRepository.removeFromWatchlist(movie.movieId, movie.mediaType)
@@ -919,7 +1118,16 @@ class CineLogViewModel(
                     ).getOrNull()
                 } else null
 
-                watchedRepository.markAsWatched(summary, details).fold(
+                val res = if (item.resolvedMediaType == MediaType.TV && details != null && details.seasons.isNotEmpty()) {
+                    markTvShowFullyWatchedInternal(
+                        summary = summary,
+                        details = details,
+                        existingWatched = watchedMap.value[item.uniqueKey],
+                    )
+                } else {
+                    watchedRepository.markAsWatched(summary, details)
+                }
+                res.fold(
                     onSuccess = {
                         watchlistRepository.removeFromWatchlist(item.movieId, item.resolvedMediaType)
                         _snackbarMessages.tryEmit("Moved \"${item.title}\" to Watched!")
@@ -1304,6 +1512,8 @@ class CineLogViewModel(
     }
 
     fun openMovieDetails(movie: MovieSummary) {
+        _seasonEpisodesStates.value = emptyMap()
+        _earlierSeasonsPrompt.value = null
         _movieModal.value = MovieModalState(
             uniqueKey = movie.uniqueKey,
             movieId = movie.movieId,
@@ -1318,6 +1528,8 @@ class CineLogViewModel(
     }
 
     fun openWatchedDetails(watched: WatchedMovie) {
+        _seasonEpisodesStates.value = emptyMap()
+        _earlierSeasonsPrompt.value = null
         val mediaType = watched.resolvedMediaType
         val summary = watched.toSummary()
         val cachedDetails = if (
@@ -1365,8 +1577,19 @@ class CineLogViewModel(
 
     private fun fetchMediaDetails(movieId: Long, mediaType: MediaType) {
         val targetKey = "${mediaType.value}_$movieId"
+        val existingForSeason = watchedMap.value[targetKey]
+        val preferredSeason = if (mediaType == MediaType.TV && existingForSeason != null) {
+            existingForSeason.currentSeason.takeIf { it > 0 }
+                ?: existingForSeason.nextUpSeason.takeIf { it > 0 }
+                ?: existingForSeason.watchedSeason.takeIf { it > 0 }
+        } else null
         viewModelScope.launch {
-            tmdbRepository.getMediaDetails(movieId, mediaType, includeImagesAndProviders = true).fold(
+            tmdbRepository.getMediaDetails(
+                mediaId = movieId,
+                mediaType = mediaType,
+                includeImagesAndProviders = true,
+                preferredSeasonNumber = preferredSeason,
+            ).fold(
                 onSuccess = { details ->
                     details.watchProvidersIN?.let { providers ->
                         _watchProvidersCache.value += (targetKey to providers)
@@ -1418,6 +1641,638 @@ class CineLogViewModel(
 
     fun dismissMovieDetails() {
         _movieModal.value = null
+        _seasonEpisodesStates.value = emptyMap()
+        _earlierSeasonsPrompt.value = null
+    }
+
+    // TV Season & Episode Tracking Actions
+    fun loadSeasonEpisodes(tvId: Long, seasonNumber: Int, forceRetry: Boolean = false) {
+        if (!forceRetry) {
+            val current = _seasonEpisodesStates.value[seasonNumber]
+            if (current is SeasonEpisodesLoadState.Success || current is SeasonEpisodesLoadState.Loading) return
+        }
+        val cached = tmdbRepository.getCachedSeasonEpisodes(tvId, seasonNumber)
+        if (cached != null) {
+            _seasonEpisodesStates.value += (seasonNumber to SeasonEpisodesLoadState.Success(cached))
+            return
+        }
+        if (!isTmdbKeyConfigured) {
+            _seasonEpisodesStates.value += (seasonNumber to SeasonEpisodesLoadState.Error("Add TMDB_API_KEY in AI Studio Secrets."))
+            return
+        }
+        viewModelScope.launch {
+            _seasonEpisodesStates.value += (seasonNumber to SeasonEpisodesLoadState.Loading)
+            tmdbRepository.getSeasonEpisodes(tvId, seasonNumber).fold(
+                onSuccess = { detail ->
+                    if (_movieModal.value?.movieId == tvId && _movieModal.value?.mediaType == MediaType.TV) {
+                        _seasonEpisodesStates.value += (seasonNumber to SeasonEpisodesLoadState.Success(detail))
+                    }
+                },
+                onFailure = { err ->
+                    if (_movieModal.value?.movieId == tvId && _movieModal.value?.mediaType == MediaType.TV) {
+                        _seasonEpisodesStates.value += (
+                            seasonNumber to SeasonEpisodesLoadState.Error(
+                                err.localizedMessage ?: "Failed to load episodes."
+                            )
+                        )
+                    }
+                }
+            )
+        }
+    }
+
+    fun toggleEpisodeWatched(tvId: Long, season: TvSeasonSummary, episodeNumber: Int) {
+        val modal = _movieModal.value?.takeIf { it.mediaType == MediaType.TV && it.movieId == tvId } ?: return
+        val details = modal.details ?: return
+        if (_isSavingTvProgress.value) return
+
+        val seasonDocsMap = modalTvSeasons.value.toMutableMap()
+        val existingDoc = seasonDocsMap[season.seasonNumber]
+        val cachedDetail = tmdbRepository.getCachedSeasonEpisodes(tvId, season.seasonNumber)
+        val totalEpCount = maxOf(
+            season.episodeCount,
+            cachedDetail?.episodes?.size ?: 0,
+            existingDoc?.episodeCount ?: 0,
+        )
+        val allEpNumbers = if (cachedDetail != null && cachedDetail.episodes.isNotEmpty()) {
+            cachedDetail.episodes.map { it.episodeNumber }.distinct().sorted()
+        } else {
+            (1..totalEpCount).toList()
+        }
+
+        val currentWatched = when {
+            existingDoc == null -> mutableSetOf()
+            existingDoc.isConsideredWatched(season.episodeCount) && existingDoc.watchedEpisodes.isEmpty() ->
+                allEpNumbers.toMutableSet()
+            else -> existingDoc.watchedEpisodes.filter { it > 0 }.toMutableSet()
+        }
+
+        if (!currentWatched.remove(episodeNumber)) {
+            currentWatched.add(episodeNumber)
+        }
+
+        val sortedWatched = currentWatched.sorted()
+        val seasonWatched = (allEpNumbers.isNotEmpty() && allEpNumbers.all { currentWatched.contains(it) }) ||
+            (totalEpCount > 0 && sortedWatched.size >= totalEpCount)
+        val seasonRuntime = TvProgressCalculator.computeSeasonRuntimeMinutes(
+            watchedEpisodes = sortedWatched,
+            seasonDetail = cachedDetail,
+            fallbackAvgEpisodeRuntime = details.runtime,
+        )
+
+        val updatedDoc = WatchedSeason(
+            id = season.seasonNumber.toString(),
+            userId = currentUserId,
+            tvId = tvId,
+            seasonNumber = season.seasonNumber,
+            episodeCount = totalEpCount,
+            watched = seasonWatched,
+            watchedEpisodes = sortedWatched,
+            watchedRuntimeMinutes = seasonRuntime,
+        )
+        seasonDocsMap[season.seasonNumber] = updatedDoc
+
+        val previousOverrides = _optimisticTvOverrides.value[tvId]
+        val nextOverrides = (previousOverrides ?: emptyMap()).toMutableMap().apply {
+            put(season.seasonNumber, updatedDoc)
+        }
+        _optimisticTvOverrides.value = _optimisticTvOverrides.value + (tvId to nextOverrides)
+
+        Log.d(
+            TAG,
+            "toggleEpisodeWatched tvId=$tvId seasonNumber=${season.seasonNumber} ep=$episodeNumber seasonWatched=$seasonWatched count=${sortedWatched.size}/$totalEpCount"
+        )
+
+        val cachedDetailsBySeason = details.seasons.mapNotNull { s ->
+            tmdbRepository.getCachedSeasonEpisodes(tvId, s.seasonNumber)?.let { s.seasonNumber to it }
+        }.toMap()
+
+        val progress = TvProgressCalculator.compute(
+            seasons = details.seasons,
+            seasonDocs = seasonDocsMap,
+            fallbackTotalSeasons = details.numberOfSeasons,
+            fallbackTotalEpisodes = details.numberOfEpisodes,
+            fallbackAvgEpisodeRuntime = details.runtime,
+            episodeDetailsBySeason = cachedDetailsBySeason,
+        )
+
+        val seasonWrite = SeasonBatchWrite(
+            seasonNumber = season.seasonNumber,
+            episodeCount = totalEpCount,
+            watched = seasonWatched,
+            watchedEpisodes = sortedWatched,
+            watchedRuntimeMinutes = seasonRuntime,
+        )
+
+        commitTvProgressBatch(
+            tvId = tvId,
+            seasonNumbersForLog = listOf(season.seasonNumber),
+            summary = modal.summary,
+            details = details,
+            existingWatched = watchedMap.value[modal.uniqueKey],
+            seasonWrites = listOf(seasonWrite),
+            deleteSeasonNumbers = emptyList(),
+            progress = progress,
+            existingSeasonIds = modalTvSeasons.value.keys,
+            previousOverrides = previousOverrides,
+            successToast = null,
+            retryAction = { toggleEpisodeWatched(tvId, season, episodeNumber) },
+        )
+    }
+
+    fun onToggleSeasonWatched(tvId: Long, season: TvSeasonSummary) {
+        if (season.isUpcoming || _isSavingTvProgress.value) return
+        val modal = _movieModal.value?.takeIf { it.mediaType == MediaType.TV && it.movieId == tvId } ?: return
+        val details = modal.details ?: return
+        val seasonDocsMap = modalTvSeasons.value
+        val existingDoc = seasonDocsMap[season.seasonNumber]
+        val isCurrentlyWatched = existingDoc?.isConsideredWatched(season.episodeCount) == true
+
+        Log.d(
+            TAG,
+            "onToggleSeasonWatched tvId=$tvId seasonNumber=${season.seasonNumber} currentlyWatched=$isCurrentlyWatched"
+        )
+
+        if (!isCurrentlyWatched && !season.isSpecial && season.seasonNumber > 1) {
+            val earlierUnwatched = details.seasons
+                .filter { !it.isSpecial && !it.isUpcoming && it.episodeCount > 0 && it.seasonNumber < season.seasonNumber }
+                .filter { earlier ->
+                    val doc = seasonDocsMap[earlier.seasonNumber]
+                    doc == null || !doc.isConsideredWatched(earlier.episodeCount)
+                }
+                .map { it.seasonNumber }
+            if (earlierUnwatched.isNotEmpty()) {
+                _earlierSeasonsPrompt.value = EarlierSeasonsPrompt(
+                    tvId = tvId,
+                    targetSeason = season,
+                    earlierSeasonNumbers = earlierUnwatched,
+                )
+                return
+            }
+        }
+
+        applySeasonsWatchedState(
+            tvId = tvId,
+            targetSeasons = listOf(season),
+            markWatched = !isCurrentlyWatched,
+        )
+    }
+
+    fun dismissEarlierSeasonsPrompt() {
+        _earlierSeasonsPrompt.value = null
+    }
+
+    fun confirmMarkEarlierSeasons(markAllUpToTarget: Boolean) {
+        val prompt = _earlierSeasonsPrompt.value ?: return
+        _earlierSeasonsPrompt.value = null
+        val modal = _movieModal.value?.takeIf { it.mediaType == MediaType.TV && it.movieId == prompt.tvId } ?: return
+        val details = modal.details ?: return
+        val targets = if (markAllUpToTarget) {
+            details.seasons.filter {
+                !it.isSpecial && !it.isUpcoming && it.episodeCount > 0 &&
+                    it.seasonNumber <= prompt.targetSeason.seasonNumber
+            }
+        } else {
+            listOf(prompt.targetSeason)
+        }
+        applySeasonsWatchedState(
+            tvId = prompt.tvId,
+            targetSeasons = targets,
+            markWatched = true,
+        )
+    }
+
+    fun markAllSeasonsWatched(tvId: Long) {
+        if (_isSavingTvProgress.value) return
+        val modal = _movieModal.value?.takeIf { it.mediaType == MediaType.TV && it.movieId == tvId } ?: return
+        val details = modal.details ?: return
+        val airedRegular = details.seasons.filter { !it.isSpecial && !it.isUpcoming && it.episodeCount > 0 }
+            .ifEmpty { details.seasons.filter { !it.isSpecial && it.episodeCount > 0 } }
+        if (airedRegular.isEmpty()) return
+        applySeasonsWatchedState(
+            tvId = tvId,
+            targetSeasons = airedRegular,
+            markWatched = true,
+            customToast = "Marked all seasons of \"${modal.summary.title}\" watched!",
+        )
+    }
+
+    fun resetTvProgress(tvId: Long) {
+        if (_isSavingTvProgress.value) return
+        val modal = _movieModal.value?.takeIf { it.mediaType == MediaType.TV && it.movieId == tvId } ?: return
+        val details = modal.details ?: return
+        val existingSeasonNumbers = modalTvSeasons.value.keys.toList()
+        val previousOverrides = _optimisticTvOverrides.value[tvId]
+        val deletedOverrides = (previousOverrides ?: emptyMap()).toMutableMap().apply {
+            existingSeasonNumbers.forEach { put(it, null) }
+        }
+        _optimisticTvOverrides.value = _optimisticTvOverrides.value + (tvId to deletedOverrides)
+
+        Log.d(TAG, "resetTvProgress tvId=$tvId seasonNumber=$existingSeasonNumbers")
+
+        val progress = TvProgressCalculator.compute(
+            seasons = details.seasons,
+            seasonDocs = emptyMap(),
+            fallbackTotalSeasons = details.numberOfSeasons,
+            fallbackTotalEpisodes = details.numberOfEpisodes,
+            fallbackAvgEpisodeRuntime = details.runtime,
+        )
+        commitTvProgressBatch(
+            tvId = tvId,
+            seasonNumbersForLog = existingSeasonNumbers,
+            summary = modal.summary,
+            details = details,
+            existingWatched = watchedMap.value[modal.uniqueKey],
+            seasonWrites = emptyList(),
+            deleteSeasonNumbers = existingSeasonNumbers,
+            progress = progress,
+            existingSeasonIds = existingSeasonNumbers.toSet(),
+            previousOverrides = previousOverrides,
+            successToast = "Reset watch progress for \"${modal.summary.title}\".",
+            retryAction = { resetTvProgress(tvId) },
+        )
+    }
+
+    private fun applySeasonsWatchedState(
+        tvId: Long,
+        targetSeasons: List<TvSeasonSummary>,
+        markWatched: Boolean,
+        customToast: String? = null,
+    ) {
+        val modal = _movieModal.value?.takeIf { it.mediaType == MediaType.TV && it.movieId == tvId } ?: return
+        val details = modal.details ?: return
+        if (targetSeasons.isEmpty()) return
+        if (_isSavingTvProgress.value) return
+
+        val previousOverrides = _optimisticTvOverrides.value[tvId]
+        val initialSeasonDocs = modalTvSeasons.value.toMutableMap()
+        val initialOverrides = (previousOverrides ?: emptyMap()).toMutableMap()
+
+        // Apply immediate optimistic state so UI stays ticked without flicker
+        targetSeasons.forEach { season ->
+            val cached = tmdbRepository.getCachedSeasonEpisodes(tvId, season.seasonNumber)
+            val totalEpCount = maxOf(season.episodeCount, cached?.episodes?.size ?: 0)
+            val epNums = if (markWatched) {
+                if (cached != null && cached.episodes.isNotEmpty()) {
+                    cached.episodes.map { it.episodeNumber }.distinct().sorted()
+                } else {
+                    (1..totalEpCount).toList()
+                }
+            } else {
+                emptyList()
+            }
+            val runtimeMins = if (markWatched) {
+                TvProgressCalculator.computeSeasonRuntimeMinutes(
+                    watchedEpisodes = epNums,
+                    seasonDetail = cached,
+                    fallbackAvgEpisodeRuntime = details.runtime,
+                )
+            } else 0
+            val optDoc = WatchedSeason(
+                id = season.seasonNumber.toString(),
+                userId = currentUserId,
+                tvId = tvId,
+                seasonNumber = season.seasonNumber,
+                episodeCount = totalEpCount,
+                watched = markWatched,
+                watchedEpisodes = epNums,
+                watchedRuntimeMinutes = runtimeMins,
+            )
+            initialSeasonDocs[season.seasonNumber] = optDoc
+            initialOverrides[season.seasonNumber] = optDoc
+        }
+        _optimisticTvOverrides.value = _optimisticTvOverrides.value + (tvId to initialOverrides)
+
+        viewModelScope.launch {
+            _isSavingTvProgress.value = true
+            val seasonNumbersLog = targetSeasons.map { it.seasonNumber }
+            Log.d(
+                TAG,
+                "applySeasonsWatchedState start tvId=$tvId seasonNumber=$seasonNumbersLog markWatched=$markWatched"
+            )
+            try {
+                // Always fetch /tv/{id}/season/{n} if needed when marking watched so watchedEpisodes has all episodes
+                val loadedDetails = mutableMapOf<Int, TvSeasonDetail>()
+                details.seasons.forEach { s ->
+                    tmdbRepository.getCachedSeasonEpisodes(tvId, s.seasonNumber)?.let {
+                        loadedDetails[s.seasonNumber] = it
+                    }
+                }
+                if (markWatched && isTmdbKeyConfigured) {
+                    val missingTargets = targetSeasons.filter { !loadedDetails.containsKey(it.seasonNumber) }
+                    missingTargets.chunked(3).forEach { chunk ->
+                        coroutineScope {
+                            chunk.map { s ->
+                                async {
+                                    tmdbRepository.getSeasonEpisodes(tvId, s.seasonNumber).getOrNull()?.let { detail ->
+                                        s.seasonNumber to detail
+                                    }
+                                }
+                            }.awaitAll().filterNotNull().forEach { (sNum, detail) ->
+                                loadedDetails[sNum] = detail
+                                if (_movieModal.value?.movieId == tvId && _movieModal.value?.mediaType == MediaType.TV) {
+                                    _seasonEpisodesStates.value += (sNum to SeasonEpisodesLoadState.Success(detail))
+                                }
+                            }
+                        }
+                    }
+                }
+
+                val seasonDocsMap = initialSeasonDocs.toMutableMap()
+                val finalizedOverrides = (_optimisticTvOverrides.value[tvId] ?: initialOverrides).toMutableMap()
+                val writes = mutableListOf<SeasonBatchWrite>()
+
+                targetSeasons.forEach { season ->
+                    val cached = loadedDetails[season.seasonNumber]
+                    val epNums = if (markWatched) {
+                        if (cached != null && cached.episodes.isNotEmpty()) {
+                            cached.episodes.map { it.episodeNumber }.distinct().sorted()
+                        } else {
+                            (1..season.episodeCount.coerceAtLeast(0)).toList()
+                        }
+                    } else {
+                        emptyList()
+                    }
+                    val totalEpCount = maxOf(season.episodeCount, epNums.size, cached?.episodes?.size ?: 0)
+                    val runtimeMins = if (markWatched) {
+                        TvProgressCalculator.computeSeasonRuntimeMinutes(
+                            watchedEpisodes = epNums,
+                            seasonDetail = cached,
+                            fallbackAvgEpisodeRuntime = details.runtime,
+                        )
+                    } else 0
+
+                    val seasonModel = WatchedSeason(
+                        id = season.seasonNumber.toString(),
+                        userId = currentUserId,
+                        tvId = tvId,
+                        seasonNumber = season.seasonNumber,
+                        episodeCount = totalEpCount,
+                        watched = markWatched,
+                        watchedEpisodes = epNums,
+                        watchedRuntimeMinutes = runtimeMins,
+                    )
+                    seasonDocsMap[season.seasonNumber] = seasonModel
+                    finalizedOverrides[season.seasonNumber] = seasonModel
+                    writes.add(
+                        SeasonBatchWrite(
+                            seasonNumber = season.seasonNumber,
+                            episodeCount = totalEpCount,
+                            watched = markWatched,
+                            watchedEpisodes = epNums,
+                            watchedRuntimeMinutes = runtimeMins,
+                        )
+                    )
+                }
+                _optimisticTvOverrides.value = _optimisticTvOverrides.value + (tvId to finalizedOverrides)
+
+                val progress = TvProgressCalculator.compute(
+                    seasons = details.seasons,
+                    seasonDocs = seasonDocsMap,
+                    fallbackTotalSeasons = details.numberOfSeasons,
+                    fallbackTotalEpisodes = details.numberOfEpisodes,
+                    fallbackAvgEpisodeRuntime = details.runtime,
+                    episodeDetailsBySeason = loadedDetails,
+                )
+
+                val toast = customToast ?: if (targetSeasons.size == 1) {
+                    val label = targetSeasons.first().displayTitle
+                    if (markWatched) "Marked $label watched." else "Marked $label unwatched."
+                } else {
+                    "Marked ${targetSeasons.size} seasons watched."
+                }
+
+                tvProgressRepository.saveTvProgressBatch(
+                    summary = modal.summary,
+                    details = details,
+                    existingWatched = watchedMap.value[modal.uniqueKey],
+                    seasonWrites = writes,
+                    deleteSeasonNumbers = emptyList(),
+                    progress = progress,
+                ).fold(
+                    onSuccess = {
+                        Log.d(
+                            TAG,
+                            "applySeasonsWatchedState success tvId=$tvId seasonNumber=$seasonNumbersLog markWatched=$markWatched status=${progress.status}"
+                        )
+                        if (progress.status != TvWatchStatus.NOT_STARTED && watchlistMap.value.containsKey(modal.uniqueKey)) {
+                            watchlistRepository.removeFromWatchlist(modal.movieId, MediaType.TV)
+                        }
+                        emitSnackbar(toast)
+                    },
+                    onFailure = { err ->
+                        Log.e(
+                            TAG,
+                            "applySeasonsWatchedState failure tvId=$tvId seasonNumber=$seasonNumbersLog exception=${err.message}",
+                            err
+                        )
+                        rollbackTvOverrides(tvId, previousOverrides)
+                        emitSnackbar(
+                            message = TvProgressRepository.formatSaveError(err),
+                            actionLabel = "Retry",
+                            onAction = { applySeasonsWatchedState(tvId, targetSeasons, markWatched, customToast) },
+                        )
+                    }
+                )
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.e(
+                    TAG,
+                    "applySeasonsWatchedState exception tvId=$tvId seasonNumber=$seasonNumbersLog exception=${e.message}",
+                    e
+                )
+                rollbackTvOverrides(tvId, previousOverrides)
+                emitSnackbar(
+                    message = TvProgressRepository.formatSaveError(e),
+                    actionLabel = "Retry",
+                    onAction = { applySeasonsWatchedState(tvId, targetSeasons, markWatched, customToast) },
+                )
+            } finally {
+                _isSavingTvProgress.value = false
+            }
+        }
+    }
+
+    private fun rollbackTvOverrides(
+        tvId: Long,
+        previousOverrides: Map<Int, WatchedSeason?>?,
+    ) {
+        val current = _optimisticTvOverrides.value.toMutableMap()
+        if (previousOverrides == null) {
+            current.remove(tvId)
+        } else {
+            current[tvId] = previousOverrides
+        }
+        _optimisticTvOverrides.value = current
+    }
+
+    private fun commitTvProgressBatch(
+        tvId: Long,
+        seasonNumbersForLog: List<Int>,
+        summary: MovieSummary,
+        details: MovieDetails,
+        existingWatched: WatchedMovie?,
+        seasonWrites: List<SeasonBatchWrite>,
+        deleteSeasonNumbers: List<Int>,
+        progress: TvComputedProgress,
+        existingSeasonIds: Set<Int>,
+        previousOverrides: Map<Int, WatchedSeason?>?,
+        successToast: String?,
+        retryAction: (() -> Unit)? = null,
+    ) {
+        viewModelScope.launch {
+            _isSavingTvProgress.value = true
+            try {
+                tvProgressRepository.saveTvProgressBatch(
+                    summary = summary,
+                    details = details,
+                    existingWatched = existingWatched,
+                    seasonWrites = seasonWrites,
+                    deleteSeasonNumbers = deleteSeasonNumbers,
+                    progress = progress,
+                    existingSeasonIds = existingSeasonIds,
+                ).fold(
+                    onSuccess = {
+                        Log.d(
+                            TAG,
+                            "commitTvProgressBatch success tvId=$tvId seasonNumber=$seasonNumbersForLog status=${progress.status}"
+                        )
+                        if (progress.status != TvWatchStatus.NOT_STARTED && watchlistMap.value.containsKey(summary.uniqueKey)) {
+                            watchlistRepository.removeFromWatchlist(summary.movieId, MediaType.TV)
+                        }
+                        successToast?.let { emitSnackbar(it) }
+                    },
+                    onFailure = { err ->
+                        Log.e(
+                            TAG,
+                            "commitTvProgressBatch failure tvId=$tvId seasonNumber=$seasonNumbersForLog exception=${err.message}",
+                            err
+                        )
+                        rollbackTvOverrides(tvId, previousOverrides)
+                        emitSnackbar(
+                            message = TvProgressRepository.formatSaveError(err),
+                            actionLabel = if (retryAction != null) "Retry" else null,
+                            onAction = retryAction,
+                        )
+                    }
+                )
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.e(
+                    TAG,
+                    "commitTvProgressBatch exception tvId=$tvId seasonNumber=$seasonNumbersForLog exception=${e.message}",
+                    e
+                )
+                rollbackTvOverrides(tvId, previousOverrides)
+                emitSnackbar(
+                    message = TvProgressRepository.formatSaveError(e),
+                    actionLabel = if (retryAction != null) "Retry" else null,
+                    onAction = retryAction,
+                )
+            } finally {
+                _isSavingTvProgress.value = false
+            }
+        }
+    }
+
+    private suspend fun markTvShowFullyWatchedInternal(
+        summary: MovieSummary,
+        details: MovieDetails,
+        existingWatched: WatchedMovie?,
+    ): Result<Unit> {
+        val airedRegular = details.seasons
+            .filter { !it.isSpecial && !it.isUpcoming && it.episodeCount > 0 }
+            .ifEmpty { details.seasons.filter { !it.isSpecial && it.episodeCount > 0 } }
+        if (airedRegular.isEmpty()) {
+            return watchedRepository.markAsWatched(summary, details)
+        }
+        val loadedDetails = mutableMapOf<Int, TvSeasonDetail>()
+        airedRegular.chunked(3).forEach { chunk ->
+            coroutineScope {
+                chunk.map { s ->
+                    async {
+                        tmdbRepository.getSeasonEpisodes(summary.movieId, s.seasonNumber).getOrNull()?.let { detail ->
+                            s.seasonNumber to detail
+                        }
+                    }
+                }.awaitAll().filterNotNull().forEach { (sNum, detail) ->
+                    loadedDetails[sNum] = detail
+                }
+            }
+        }
+        val seasonDocsMap = mutableMapOf<Int, WatchedSeason>()
+        val writes = airedRegular.map { season ->
+            val cached = loadedDetails[season.seasonNumber]
+            val epCount = maxOf(season.episodeCount, cached?.episodes?.size ?: 0)
+            val epNums = if (cached != null && cached.episodes.isNotEmpty()) {
+                cached.episodes.filter { !it.isUpcoming }.map { it.episodeNumber }.ifEmpty { (1..epCount).toList() }
+            } else {
+                (1..epCount).toList()
+            }
+            val runtimeMins = TvProgressCalculator.computeSeasonRuntimeMinutes(
+                watchedEpisodes = epNums,
+                seasonDetail = cached,
+                fallbackAvgEpisodeRuntime = details.runtime,
+            )
+            seasonDocsMap[season.seasonNumber] = WatchedSeason(
+                id = season.seasonNumber.toString(),
+                userId = currentUserId,
+                tvId = summary.movieId,
+                seasonNumber = season.seasonNumber,
+                episodeCount = epCount,
+                watched = true,
+                watchedEpisodes = epNums,
+                watchedRuntimeMinutes = runtimeMins,
+            )
+            SeasonBatchWrite(
+                seasonNumber = season.seasonNumber,
+                episodeCount = epCount,
+                watched = true,
+                watchedEpisodes = epNums,
+                watchedRuntimeMinutes = runtimeMins,
+            )
+        }
+        val progress = TvProgressCalculator.compute(
+            seasons = details.seasons,
+            seasonDocs = seasonDocsMap,
+            fallbackTotalSeasons = details.numberOfSeasons,
+            fallbackTotalEpisodes = details.numberOfEpisodes,
+            fallbackAvgEpisodeRuntime = details.runtime,
+            episodeDetailsBySeason = loadedDetails,
+        )
+        return tvProgressRepository.saveTvProgressBatch(
+            summary = summary,
+            details = details,
+            existingWatched = existingWatched,
+            seasonWrites = writes,
+            deleteSeasonNumbers = emptyList(),
+            progress = progress,
+        )
+    }
+
+    private suspend fun runOneTimeLegacyTvMigration(legacyShows: List<WatchedMovie>) {
+        var allSucceeded = true
+        for (item in legacyShows) {
+            val details = tmdbRepository.getTvDetails(item.movieId).getOrNull()
+            if (details == null) {
+                allSucceeded = false
+                continue
+            }
+            val res = markTvShowFullyWatchedInternal(
+                summary = item.toSummary(),
+                details = details,
+                existingWatched = item,
+            )
+            if (res.isFailure) {
+                allSucceeded = false
+            }
+        }
+        if (allSucceeded) {
+            settingsRepository.markTvMigrationCompleted()
+            _tvMigrationCompleted.value = true
+        }
     }
 
     fun saveReview(
@@ -1440,9 +2295,14 @@ class CineLogViewModel(
                     details = modal.details,
                     watchedSeason = watchedSeason,
                     reaction = reaction,
+                    initialTvStatus = if (mediaType == MediaType.TV) {
+                        TvWatchStatus.NOT_STARTED.key
+                    } else {
+                        TvWatchStatus.COMPLETED.key
+                    },
                 ).let { markRes ->
                     if (markRes.isSuccess) {
-                        if (watchlistMap.value.containsKey(key)) {
+                        if (mediaType != MediaType.TV && watchlistMap.value.containsKey(key)) {
                             watchlistRepository.removeFromWatchlist(movieId, mediaType)
                         }
                         watchedRepository.updateRatingAndNote(

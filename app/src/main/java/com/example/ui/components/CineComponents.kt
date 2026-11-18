@@ -13,7 +13,6 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -23,15 +22,19 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
-import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -46,19 +49,28 @@ import androidx.compose.material.icons.rounded.ExpandLess
 import androidx.compose.material.icons.rounded.ExpandMore
 import androidx.compose.material.icons.rounded.Language
 import androidx.compose.material.icons.rounded.Movie
+import androidx.compose.material.icons.rounded.Person
+import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material.icons.rounded.Star
 import androidx.compose.material.icons.rounded.StarBorder
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.PlainTooltip
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TooltipBox
+import androidx.compose.material3.TooltipDefaults
 import androidx.compose.material3.minimumInteractiveComponentSize
+import androidx.compose.material3.rememberTooltipState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -67,10 +79,12 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
@@ -80,10 +94,14 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
+import coil.compose.AsyncImagePainter
+import coil.request.ImageRequest
+import coil.transform.CircleCropTransformation
 import com.example.R
 import com.example.data.model.LanguageChipCount
 import com.example.data.model.MovieSummary
 import com.example.data.model.WatchProvidersRegion
+import com.example.ui.theme.CineCharcoal
 import com.example.ui.theme.CineElevated
 import com.example.ui.theme.CineEmerald
 import com.example.ui.theme.CineEmeraldContainer
@@ -137,11 +155,13 @@ fun OfflineModeBanner(
 fun CineTopNavbar(
     userName: String,
     userPhotoUrl: String?,
-    watchedCount: Int,
-    onWatchedBadgeClick: () -> Unit,
+    onOpenSettings: () -> Unit,
     onLogoutClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    var menuExpanded by remember { mutableStateOf(false) }
+    val initial = userName.trim().firstOrNull()?.uppercase() ?: "U"
+
     Surface(
         color = MaterialTheme.colorScheme.background.copy(alpha = 0.96f),
         modifier = modifier.fillMaxWidth(),
@@ -177,75 +197,169 @@ fun CineTopNavbar(
                     style = MaterialTheme.typography.headlineLarge,
                     color = MaterialTheme.colorScheme.onBackground,
                 )
-                Surface(
-                    onClick = onWatchedBadgeClick,
-                    color = CineElevated,
-                    shape = RoundedCornerShape(50),
-                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
-                    modifier = Modifier.testTag("watched_count_badge"),
-                ) {
-                    Text(
-                        text = stringResource(R.string.movies_watched_count, watchedCount),
-                        style = MaterialTheme.typography.labelMedium,
-                        color = CineGold,
-                        fontWeight = FontWeight.Bold,
-                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
-                    )
-                }
             }
 
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
-            ) {
-                if (!userPhotoUrl.isNullOrBlank()) {
-                    AsyncImage(
-                        model = userPhotoUrl,
-                        contentDescription = "$userName profile photo",
-                        contentScale = ContentScale.Crop,
-                        modifier = Modifier
-                            .size(34.dp)
-                            .clip(CircleShape)
-                            .background(CineSurfaceHigh),
-                    )
-                } else {
-                    Surface(
-                        color = MaterialTheme.colorScheme.primaryContainer,
-                        shape = CircleShape,
-                        modifier = Modifier.size(34.dp),
-                    ) {
-                        Box(contentAlignment = Alignment.Center) {
-                            Text(
-                                text = userName.firstOrNull()?.uppercase() ?: "U",
-                                style = MaterialTheme.typography.labelLarge,
-                                color = MaterialTheme.colorScheme.onPrimaryContainer,
-                            )
-                        }
-                    }
-                }
-
-                Text(
-                    text = userName.substringBefore(" "),
-                    style = MaterialTheme.typography.labelLarge,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.widthIn(max = 100.dp),
-                )
-
-                IconButton(
-                    onClick = onLogoutClick,
+            Box {
+                Box(
+                    contentAlignment = Alignment.Center,
                     modifier = Modifier
                         .minimumInteractiveComponentSize()
-                        .testTag("logout_button"),
+                        .clip(CircleShape)
+                        .clickable { menuExpanded = true }
+                        .testTag("profile_avatar_button"),
                 ) {
-                    Icon(
-                        imageVector = Icons.AutoMirrored.Rounded.Logout,
-                        contentDescription = stringResource(R.string.logout),
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    UserProfileAvatar(
+                        userName = userName,
+                        userPhotoUrl = userPhotoUrl,
+                        size = 38.dp,
+                    )
+                }
+
+                DropdownMenu(
+                    expanded = menuExpanded,
+                    onDismissRequest = { menuExpanded = false },
+                    containerColor = CineCharcoal,
+                ) {
+                    DropdownMenuItem(
+                        text = {
+                            Text(
+                                text = stringResource(R.string.tab_settings),
+                                style = MaterialTheme.typography.bodyLarge,
+                                color = MaterialTheme.colorScheme.onSurface,
+                            )
+                        },
+                        leadingIcon = {
+                            Icon(
+                                imageVector = Icons.Rounded.Settings,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        },
+                        onClick = {
+                            menuExpanded = false
+                            onOpenSettings()
+                        },
+                        modifier = Modifier.testTag("navbar_settings_menu_item"),
+                    )
+                    DropdownMenuItem(
+                        text = {
+                            Text(
+                                text = stringResource(R.string.logout),
+                                style = MaterialTheme.typography.bodyLarge,
+                                color = MaterialTheme.colorScheme.error,
+                            )
+                        },
+                        leadingIcon = {
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Rounded.Logout,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.error,
+                            )
+                        },
+                        onClick = {
+                            menuExpanded = false
+                            onLogoutClick()
+                        },
+                        modifier = Modifier.testTag("logout_button"),
                     )
                 }
             }
+        }
+    }
+}
+
+fun formatGoogleProfilePhotoUrl(rawUrl: String?): String? {
+    val trimmed = rawUrl?.trim()?.takeIf { it.isNotEmpty() } ?: return null
+    if (!trimmed.contains("googleusercontent.com", ignoreCase = true)) return trimmed
+    val sizePattern = Regex("=s\\d+(-[a-zA-Z0-9]+)?$")
+    return when {
+        sizePattern.containsMatchIn(trimmed) -> trimmed.replace(sizePattern, "=s200")
+        !trimmed.contains("=") -> "$trimmed=s200"
+        else -> trimmed
+    }
+}
+
+@Composable
+fun UserProfileAvatar(
+    userName: String,
+    userPhotoUrl: String?,
+    size: Dp = 38.dp,
+    modifier: Modifier = Modifier,
+) {
+    val context = LocalContext.current
+    val initial = userName.trim().firstOrNull()?.uppercase() ?: "U"
+    val formattedUrl = remember(userPhotoUrl) { formatGoogleProfilePhotoUrl(userPhotoUrl) }
+    var imageState by remember(formattedUrl) {
+        mutableStateOf<AsyncImagePainter.State>(AsyncImagePainter.State.Empty)
+    }
+
+    Box(
+        contentAlignment = Alignment.Center,
+        modifier = modifier
+            .size(size)
+            .clip(CircleShape),
+    ) {
+        if (formattedUrl == null || imageState is AsyncImagePainter.State.Error) {
+            ProfileInitialFallback(
+                initial = initial,
+                modifier = Modifier.fillMaxSize(),
+            )
+        } else {
+            if (imageState is AsyncImagePainter.State.Loading || imageState is AsyncImagePainter.State.Empty) {
+                ProfileAvatarPlaceholder(modifier = Modifier.fillMaxSize())
+            }
+            AsyncImage(
+                model = ImageRequest.Builder(context)
+                    .data(formattedUrl)
+                    .crossfade(true)
+                    .transformations(CircleCropTransformation())
+                    .build(),
+                contentDescription = "$userName profile photo",
+                contentScale = ContentScale.Crop,
+                onState = { imageState = it },
+                modifier = Modifier
+                    .fillMaxSize()
+                    .clip(CircleShape),
+            )
+        }
+    }
+}
+
+@Composable
+private fun ProfileAvatarPlaceholder(modifier: Modifier = Modifier) {
+    Surface(
+        color = CineElevated,
+        shape = CircleShape,
+        modifier = modifier,
+    ) {
+        Box(contentAlignment = Alignment.Center) {
+            Icon(
+                imageVector = Icons.Rounded.Person,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(20.dp),
+            )
+        }
+    }
+}
+
+@Composable
+private fun ProfileInitialFallback(
+    initial: String,
+    modifier: Modifier = Modifier,
+) {
+    Surface(
+        color = MaterialTheme.colorScheme.primaryContainer,
+        shape = CircleShape,
+        modifier = modifier,
+    ) {
+        Box(contentAlignment = Alignment.Center) {
+            Text(
+                text = initial,
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.onPrimaryContainer,
+                fontWeight = FontWeight.Bold,
+            )
         }
     }
 }
@@ -258,6 +372,8 @@ fun LanguageFilterRow(
     selectedLanguage: String,
     onLanguageSelected: (String) -> Unit,
     testTagPrefix: String,
+    contentPadding: PaddingValues = PaddingValues(horizontal = 16.dp),
+    fadeColor: Color = MaterialTheme.colorScheme.background,
     modifier: Modifier = Modifier,
 ) {
     if (chips.isEmpty()) return
@@ -267,60 +383,101 @@ fun LanguageFilterRow(
     val initialVisible = if (primaryChips.isNotEmpty()) primaryChips else chips.take(5)
     val overflowChips = if (primaryChips.isNotEmpty()) extraChips else chips.drop(5)
     var showMore by remember { mutableStateOf(false) }
+    val rowState = rememberLazyListState()
 
     Column(modifier = modifier.fillMaxWidth()) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .horizontalScroll(rememberScrollState()),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Icon(
-                imageVector = Icons.Rounded.Language,
-                contentDescription = "Language filters",
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.size(16.dp),
-            )
-            FilterChip(
-                selected = selectedLanguage == "all",
-                onClick = { onLanguageSelected("all") },
-                label = { Text("All ($totalCount)") },
-                colors = FilterChipDefaults.filterChipColors(
-                    selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
-                    selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                ),
-                modifier = Modifier.testTag("${testTagPrefix}_lang_all"),
-            )
-            initialVisible.forEach { item ->
-                FilterChip(
-                    selected = selectedLanguage.equals(item.code, ignoreCase = true),
-                    onClick = {
-                        onLanguageSelected(
-                            if (selectedLanguage.equals(item.code, ignoreCase = true)) "all" else item.code
+        Box(modifier = Modifier.fillMaxWidth()) {
+            LazyRow(
+                state = rowState,
+                contentPadding = contentPadding,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                item(key = "lang_icon") {
+                    Icon(
+                        imageVector = Icons.Rounded.Language,
+                        contentDescription = "Language filters",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(16.dp),
+                    )
+                }
+                item(key = "lang_all") {
+                    FilterChip(
+                        selected = selectedLanguage == "all",
+                        onClick = { onLanguageSelected("all") },
+                        label = {
+                            Text(
+                                text = "All ($totalCount)",
+                                maxLines = 1,
+                                softWrap = false,
+                            )
+                        },
+                        colors = FilterChipDefaults.filterChipColors(
+                            selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
+                            selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                        ),
+                        modifier = Modifier.testTag("${testTagPrefix}_lang_all"),
+                    )
+                }
+                items(initialVisible, key = { it.code }) { item ->
+                    FilterChip(
+                        selected = selectedLanguage.equals(item.code, ignoreCase = true),
+                        onClick = {
+                            onLanguageSelected(
+                                if (selectedLanguage.equals(item.code, ignoreCase = true)) "all" else item.code
+                            )
+                        },
+                        label = {
+                            Text(
+                                text = "${item.label} (${item.count})",
+                                maxLines = 1,
+                                softWrap = false,
+                            )
+                        },
+                        colors = FilterChipDefaults.filterChipColors(
+                            selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
+                            selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                        ),
+                        modifier = Modifier.testTag("${testTagPrefix}_lang_${item.code}"),
+                    )
+                }
+                if (overflowChips.isNotEmpty()) {
+                    item(key = "lang_more") {
+                        FilterChip(
+                            selected = overflowChips.any { it.code.equals(selectedLanguage, ignoreCase = true) },
+                            onClick = { showMore = !showMore },
+                            label = {
+                                Text(
+                                    text = if (showMore) "Less" else "More (+${overflowChips.size})",
+                                    maxLines = 1,
+                                    softWrap = false,
+                                )
+                            },
+                            trailingIcon = {
+                                Icon(
+                                    imageVector = if (showMore) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(16.dp),
+                                )
+                            },
+                            modifier = Modifier.testTag("${testTagPrefix}_lang_more"),
                         )
-                    },
-                    label = { Text("${item.label} (${item.count})") },
-                    colors = FilterChipDefaults.filterChipColors(
-                        selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
-                        selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                    ),
-                    modifier = Modifier.testTag("${testTagPrefix}_lang_${item.code}"),
-                )
+                    }
+                }
             }
-            if (overflowChips.isNotEmpty()) {
-                FilterChip(
-                    selected = overflowChips.any { it.code.equals(selectedLanguage, ignoreCase = true) },
-                    onClick = { showMore = !showMore },
-                    label = { Text(if (showMore) "Less" else "More (+${overflowChips.size})") },
-                    trailingIcon = {
-                        Icon(
-                            imageVector = if (showMore) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore,
-                            contentDescription = null,
-                            modifier = Modifier.size(16.dp),
+
+            if (rowState.canScrollForward) {
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.CenterEnd)
+                        .width(32.dp)
+                        .height(42.dp)
+                        .background(
+                            Brush.horizontalGradient(
+                                colors = listOf(Color.Transparent, fadeColor)
+                            )
                         )
-                    },
-                    modifier = Modifier.testTag("${testTagPrefix}_lang_more"),
                 )
             }
         }
@@ -329,7 +486,7 @@ fun LanguageFilterRow(
             FlowRow(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(top = 6.dp),
+                    .padding(horizontal = 16.dp, vertical = 6.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalArrangement = Arrangement.spacedBy(6.dp),
             ) {
@@ -341,7 +498,13 @@ fun LanguageFilterRow(
                                 if (selectedLanguage.equals(item.code, ignoreCase = true)) "all" else item.code
                             )
                         },
-                        label = { Text("${item.label} (${item.count})") },
+                        label = {
+                            Text(
+                                text = "${item.label} (${item.count})",
+                                maxLines = 1,
+                                softWrap = false,
+                            )
+                        },
                         colors = FilterChipDefaults.filterChipColors(
                             selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
                             selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer,
@@ -353,6 +516,7 @@ fun LanguageFilterRow(
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun DiscoverMovieCard(
     movie: MovieSummary,
@@ -377,6 +541,7 @@ fun DiscoverMovieCard(
         ),
         modifier = modifier
             .fillMaxWidth()
+            .clipToBounds()
             .clip(MaterialTheme.shapes.medium)
             .clickable(onClick = onCardClick)
             .testTag("discover_movie_card_${movie.uniqueKey}"),
@@ -388,7 +553,7 @@ fun DiscoverMovieCard(
                     .aspectRatio(2f / 3f)
                     .background(CineElevated),
             ) {
-                val posterUrl = movie.fullPosterUrl()
+                val posterUrl = movie.fullPosterThumbUrl()
                 if (posterUrl != null) {
                     AsyncImage(
                         model = posterUrl,
@@ -434,35 +599,27 @@ fun DiscoverMovieCard(
                         )
                 )
 
-                // TMDB Score Badge (top-left)
-                Surface(
-                    color = CineObsidian.copy(alpha = 0.84f),
-                    shape = RoundedCornerShape(8.dp),
-                    modifier = Modifier
-                        .align(Alignment.TopStart)
-                        .padding(8.dp),
-                ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 7.dp, vertical = 4.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(3.dp),
+                // Top-left: Language badge
+                val langBadge = movie.languageName
+                if (langBadge.isNotBlank()) {
+                    Surface(
+                        color = CineObsidian.copy(alpha = 0.84f),
+                        shape = RoundedCornerShape(6.dp),
+                        modifier = Modifier
+                            .align(Alignment.TopStart)
+                            .padding(8.dp),
                     ) {
-                        Icon(
-                            imageVector = Icons.Rounded.Star,
-                            contentDescription = null,
-                            tint = CineGold,
-                            modifier = Modifier.size(13.dp),
-                        )
                         Text(
-                            text = String.format(Locale.US, "%.1f", movie.rating),
+                            text = langBadge,
                             style = MaterialTheme.typography.labelMedium,
                             color = MaterialTheme.colorScheme.onSurface,
-                            fontWeight = FontWeight.Bold,
+                            maxLines = 1,
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp),
                         )
                     }
                 }
 
-                // Top-right badge: Personal rating if rated, or TV Series tag for TV shows
+                // Top-right: Star rating (personal rating if rated, or TMDB star + score)
                 if (isWatched && userRating > 0) {
                     Surface(
                         color = CineGold,
@@ -471,53 +628,80 @@ fun DiscoverMovieCard(
                             .align(Alignment.TopEnd)
                             .padding(8.dp),
                     ) {
-                        Text(
-                            text = "${userRating}★",
-                            style = MaterialTheme.typography.labelMedium,
-                            color = CineObsidian,
-                            fontWeight = FontWeight.ExtraBold,
+                        Row(
                             modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp),
-                        )
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(2.dp),
+                        ) {
+                            Icon(
+                                imageVector = Icons.Rounded.Star,
+                                contentDescription = null,
+                                tint = CineObsidian,
+                                modifier = Modifier.size(12.dp),
+                            )
+                            Text(
+                                text = "$userRating",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = CineObsidian,
+                                fontWeight = FontWeight.ExtraBold,
+                            )
+                        }
                     }
-                } else if (movie.isTv) {
+                } else {
                     Surface(
-                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.92f),
+                        color = CineObsidian.copy(alpha = 0.84f),
                         shape = RoundedCornerShape(8.dp),
                         modifier = Modifier
                             .align(Alignment.TopEnd)
                             .padding(8.dp),
                     ) {
-                        Text(
-                            text = "TV",
-                            style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.onPrimary,
-                            fontWeight = FontWeight.ExtraBold,
+                        Row(
                             modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp),
-                        )
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(3.dp),
+                        ) {
+                            Icon(
+                                imageVector = Icons.Rounded.Star,
+                                contentDescription = null,
+                                tint = CineGold,
+                                modifier = Modifier.size(12.dp),
+                            )
+                            Text(
+                                text = String.format(Locale.US, "%.1f", movie.rating),
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.onSurface,
+                                fontWeight = FontWeight.Bold,
+                            )
+                        }
                     }
                 }
 
-                // Bottom-left language badge
-                val langBadge = movie.languageName
-                if (langBadge.isNotBlank()) {
-                    Surface(
-                        color = CineObsidian.copy(alpha = 0.82f),
-                        shape = RoundedCornerShape(6.dp),
-                        modifier = Modifier
-                            .align(Alignment.BottomStart)
-                            .padding(8.dp),
-                    ) {
-                        Text(
-                            text = langBadge,
-                            style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.onSurface,
-                            maxLines = 1,
-                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
-                        )
-                    }
+                // Bottom-left: Media type badge ("TV" / "Movie")
+                Surface(
+                    color = if (movie.isTv) {
+                        MaterialTheme.colorScheme.primary.copy(alpha = 0.92f)
+                    } else {
+                        CineObsidian.copy(alpha = 0.86f)
+                    },
+                    shape = RoundedCornerShape(6.dp),
+                    modifier = Modifier
+                        .align(Alignment.BottomStart)
+                        .padding(8.dp),
+                ) {
+                    Text(
+                        text = if (movie.isTv) "TV" else "Movie",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = if (movie.isTv) {
+                            MaterialTheme.colorScheme.onPrimary
+                        } else {
+                            MaterialTheme.colorScheme.onSurface
+                        },
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp),
+                    )
                 }
 
-                // Bottom-right OTT provider mini logos (India)
+                // Bottom-right: OTT provider mini logos (India)
                 val badgeProviders = providers?.badgeProviders.orEmpty()
                 if (badgeProviders.isNotEmpty()) {
                     Row(
@@ -534,7 +718,7 @@ fun DiscoverMovieCard(
                                     contentDescription = provider.providerName,
                                     contentScale = ContentScale.Crop,
                                     modifier = Modifier
-                                        .size(22.dp)
+                                        .size(20.dp)
                                         .clip(RoundedCornerShape(5.dp))
                                         .background(CineObsidian),
                                 )
@@ -545,118 +729,155 @@ fun DiscoverMovieCard(
             }
 
             Column(
-                modifier = Modifier.padding(10.dp),
-                verticalArrangement = Arrangement.spacedBy(6.dp),
+                modifier = Modifier
+                    .padding(10.dp)
+                    .clipToBounds(),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
             ) {
                 Text(
                     text = movie.title,
                     style = MaterialTheme.typography.titleMedium,
                     color = MaterialTheme.colorScheme.onSurface,
-                    maxLines = 1,
+                    minLines = 2,
+                    maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
                 )
                 Text(
-                    text = if (movie.isTv) "${movie.releaseYear} • TV Series" else movie.releaseYear,
+                    text = "${movie.releaseYear} • ${if (movie.isTv) "TV Series" else "Movie"}",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
                 )
 
+                Spacer(modifier = Modifier.height(2.dp))
+
+                // Primary full-width Watched CTA (no clipping/ellipsis)
+                Button(
+                    onClick = onToggleWatched,
+                    enabled = !isToggling,
+                    shape = RoundedCornerShape(10.dp),
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = if (isWatched) CineEmeraldContainer else MaterialTheme.colorScheme.primary,
+                        contentColor = if (isWatched) CineEmerald else MaterialTheme.colorScheme.onPrimary,
+                    ),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(48.dp)
+                        .testTag("toggle_watched_button_${movie.uniqueKey}"),
+                ) {
+                    if (isToggling) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(16.dp),
+                            strokeWidth = 2.dp,
+                            color = if (isWatched) CineEmerald else MaterialTheme.colorScheme.onPrimary,
+                        )
+                    } else {
+                        Icon(
+                            imageVector = if (isWatched) Icons.Rounded.Check else Icons.Rounded.Add,
+                            contentDescription = null,
+                            modifier = Modifier.size(16.dp),
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(
+                            text = if (isWatched) stringResource(R.string.watched_badge) else "Watched",
+                            style = MaterialTheme.typography.labelLarge,
+                            fontWeight = FontWeight.Bold,
+                            maxLines = 1,
+                            softWrap = false,
+                        )
+                    }
+                }
+
+                // Secondary compact icon buttons row (Watchlist + Add to list)
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Button(
-                        onClick = onToggleWatched,
-                        enabled = !isToggling,
-                        shape = RoundedCornerShape(10.dp),
-                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = if (isWatched) CineEmeraldContainer else MaterialTheme.colorScheme.primary,
-                            contentColor = if (isWatched) CineEmerald else MaterialTheme.colorScheme.onPrimary,
-                        ),
-                        modifier = Modifier
-                            .weight(1f)
-                            .height(48.dp)
-                            .testTag("toggle_watched_button_${movie.uniqueKey}"),
-                    ) {
-                        if (isToggling) {
-                            CircularProgressIndicator(
-                                modifier = Modifier.size(16.dp),
-                                strokeWidth = 2.dp,
-                                color = if (isWatched) CineEmerald else MaterialTheme.colorScheme.onPrimary,
-                            )
-                        } else {
-                            Icon(
-                                imageVector = if (isWatched) Icons.Rounded.Check else Icons.Rounded.Add,
-                                contentDescription = null,
-                                modifier = Modifier.size(15.dp),
-                            )
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text(
-                                text = if (isWatched) {
-                                    stringResource(R.string.watched_badge)
-                                } else {
-                                    "Watched"
-                                },
-                                style = MaterialTheme.typography.labelLarge,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                            )
-                        }
+                    val watchlistLabel = if (isInWatchlist) {
+                        stringResource(R.string.in_watchlist)
+                    } else {
+                        stringResource(R.string.add_to_watchlist)
                     }
-
-                    Surface(
-                        onClick = onToggleWatchlist,
-                        enabled = !isWatchlistToggling,
-                        color = if (isInWatchlist) MaterialTheme.colorScheme.primaryContainer else CineElevated,
-                        shape = RoundedCornerShape(10.dp),
-                        border = BorderStroke(
-                            1.dp,
-                            if (isInWatchlist) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline
-                        ),
-                        modifier = Modifier
-                            .size(48.dp)
-                            .testTag("toggle_watchlist_button_${movie.uniqueKey}"),
+                    TooltipBox(
+                        positionProvider = TooltipDefaults.rememberPlainTooltipPositionProvider(),
+                        tooltip = { PlainTooltip { Text(watchlistLabel) } },
+                        state = rememberTooltipState(),
+                        modifier = Modifier.weight(1f),
                     ) {
-                        Box(contentAlignment = Alignment.Center) {
-                            if (isWatchlistToggling) {
-                                CircularProgressIndicator(
-                                    modifier = Modifier.size(16.dp),
-                                    strokeWidth = 2.dp,
-                                )
-                            } else {
-                                Icon(
-                                    imageVector = if (isInWatchlist) Icons.Rounded.Bookmark else Icons.Rounded.BookmarkBorder,
-                                    contentDescription = if (isInWatchlist) {
-                                        stringResource(R.string.in_watchlist)
+                        Box(
+                            contentAlignment = Alignment.Center,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .heightIn(min = 48.dp)
+                                .clickable(enabled = !isWatchlistToggling, onClick = onToggleWatchlist)
+                                .testTag("toggle_watchlist_button_${movie.uniqueKey}"),
+                        ) {
+                            Surface(
+                                color = if (isInWatchlist) MaterialTheme.colorScheme.primaryContainer else CineElevated,
+                                shape = RoundedCornerShape(10.dp),
+                                border = BorderStroke(
+                                    1.dp,
+                                    if (isInWatchlist) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline
+                                ),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(40.dp),
+                            ) {
+                                Box(contentAlignment = Alignment.Center) {
+                                    if (isWatchlistToggling) {
+                                        CircularProgressIndicator(
+                                            modifier = Modifier.size(16.dp),
+                                            strokeWidth = 2.dp,
+                                        )
                                     } else {
-                                        stringResource(R.string.add_to_watchlist)
-                                    },
-                                    tint = if (isInWatchlist) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-                                    modifier = Modifier.size(20.dp),
-                                )
+                                        Icon(
+                                            imageVector = if (isInWatchlist) Icons.Rounded.Bookmark else Icons.Rounded.BookmarkBorder,
+                                            contentDescription = watchlistLabel,
+                                            tint = if (isInWatchlist) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                                            modifier = Modifier.size(19.dp),
+                                        )
+                                    }
+                                }
                             }
                         }
                     }
 
                     if (onAddToList != null) {
-                        Surface(
-                            onClick = onAddToList,
-                            color = CineElevated,
-                            shape = RoundedCornerShape(10.dp),
-                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
-                            modifier = Modifier
-                                .size(48.dp)
-                                .testTag("add_to_list_button_${movie.uniqueKey}"),
+                        val addToListDesc = "Add ${movie.title} to custom list"
+                        TooltipBox(
+                            positionProvider = TooltipDefaults.rememberPlainTooltipPositionProvider(),
+                            tooltip = { PlainTooltip { Text("Add to list") } },
+                            state = rememberTooltipState(),
+                            modifier = Modifier.weight(1f),
                         ) {
-                            Box(contentAlignment = Alignment.Center) {
-                                Icon(
-                                    imageVector = Icons.AutoMirrored.Rounded.PlaylistAdd,
-                                    contentDescription = "Add ${movie.title} to custom list",
-                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    modifier = Modifier.size(20.dp),
-                                )
+                            Box(
+                                contentAlignment = Alignment.Center,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .heightIn(min = 48.dp)
+                                    .clickable(onClick = onAddToList)
+                                    .testTag("add_to_list_button_${movie.uniqueKey}"),
+                            ) {
+                                Surface(
+                                    color = CineElevated,
+                                    shape = RoundedCornerShape(10.dp),
+                                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(40.dp),
+                                ) {
+                                    Box(contentAlignment = Alignment.Center) {
+                                        Icon(
+                                            imageVector = Icons.AutoMirrored.Rounded.PlaylistAdd,
+                                            contentDescription = addToListDesc,
+                                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            modifier = Modifier.size(19.dp),
+                                        )
+                                    }
+                                }
                             }
                         }
                     }

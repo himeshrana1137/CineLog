@@ -1,13 +1,10 @@
 package com.example.ui.components
 
-import android.annotation.SuppressLint
+import android.content.ActivityNotFoundException
+import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.view.ViewGroup
-import android.webkit.WebChromeClient
-import android.webkit.WebSettings
-import android.webkit.WebView
-import android.webkit.WebViewClient
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -52,12 +49,17 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import coil.compose.AsyncImage
 import com.example.data.model.MediaVideo
 import com.example.ui.theme.CineElevated
 import com.example.ui.theme.CineObsidian
+import com.pierfrancescosoffritti.androidyoutubeplayer.core.player.PlayerConstants
+import com.pierfrancescosoffritti.androidyoutubeplayer.core.player.YouTubePlayer
+import com.pierfrancescosoffritti.androidyoutubeplayer.core.player.listeners.AbstractYouTubePlayerListener
+import com.pierfrancescosoffritti.androidyoutubeplayer.core.player.options.IFramePlayerOptions
+import com.pierfrancescosoffritti.androidyoutubeplayer.core.player.views.YouTubePlayerView
 
-@SuppressLint("SetJavaScriptEnabled")
 @Composable
 fun YouTubeTrailerPlayer(
     trailer: MediaVideo?,
@@ -66,7 +68,9 @@ fun YouTubeTrailerPlayer(
     if (trailer == null || trailer.key.isBlank()) return
 
     val context = LocalContext.current
-    var isPlayerLoaded by remember(trailer.key) { mutableStateOf(false) }
+    val lifecycleOwner = LocalLifecycleOwner.current
+    var isPlayerRequested by remember(trailer.key) { mutableStateOf(false) }
+    var hasPlaybackError by remember(trailer.key) { mutableStateOf(false) }
 
     Column(
         modifier = modifier
@@ -119,14 +123,20 @@ fun YouTubeTrailerPlayer(
                 .fillMaxWidth()
                 .aspectRatio(16f / 9f),
         ) {
-            if (!isPlayerLoaded) {
-                // Lazy-loaded YouTube preview thumbnail; mounts WebView only on tap
+            if (!isPlayerRequested || hasPlaybackError) {
+                // Lazy-loaded thumbnail (or fallback launcher when player reports an error)
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
                         .clip(MaterialTheme.shapes.medium)
-                        .clickable { isPlayerLoaded = true }
-                        .testTag("trailer_lazy_thumbnail"),
+                        .clickable {
+                            if (hasPlaybackError) {
+                                openYouTubeTrailerExternally(context, trailer)
+                            } else {
+                                isPlayerRequested = true
+                            }
+                        }
+                        .testTag(if (hasPlaybackError) "trailer_error_fallback" else "trailer_lazy_thumbnail"),
                 ) {
                     AsyncImage(
                         model = trailer.youtubeThumbnailUrl,
@@ -141,7 +151,7 @@ fun YouTubeTrailerPlayer(
                                 Brush.verticalGradient(
                                     colors = listOf(
                                         CineObsidian.copy(alpha = 0.25f),
-                                        CineObsidian.copy(alpha = 0.72f),
+                                        CineObsidian.copy(alpha = 0.78f),
                                     )
                                 )
                             )
@@ -150,62 +160,99 @@ fun YouTubeTrailerPlayer(
                         color = MaterialTheme.colorScheme.primary,
                         shape = CircleShape,
                         modifier = Modifier
-                            .size(58.dp)
+                            .size(62.dp)
                             .align(Alignment.Center),
                     ) {
                         Box(contentAlignment = Alignment.Center) {
                             Icon(
                                 imageVector = Icons.Rounded.PlayArrow,
-                                contentDescription = "Play trailer",
+                                contentDescription = if (hasPlaybackError) {
+                                    "Watch trailer in YouTube"
+                                } else {
+                                    "Play trailer"
+                                },
                                 tint = MaterialTheme.colorScheme.onPrimary,
-                                modifier = Modifier.size(34.dp),
+                                modifier = Modifier.size(36.dp),
                             )
                         }
                     }
-                    Text(
-                        text = trailer.name.ifBlank { "Watch Trailer" },
-                        style = MaterialTheme.typography.labelLarge,
-                        color = Color.White,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
+                    Column(
                         modifier = Modifier
                             .align(Alignment.BottomStart)
+                            .fillMaxWidth()
                             .padding(12.dp),
-                    )
-                }
-            } else {
-                val webViewHolder = remember { arrayOfNulls<WebView>(1) }
-                DisposableEffect(trailer.key) {
-                    onDispose {
-                        webViewHolder[0]?.apply {
-                            stopLoading()
-                            loadUrl("about:blank")
-                            destroy()
+                        verticalArrangement = Arrangement.spacedBy(2.dp),
+                    ) {
+                        Text(
+                            text = trailer.name.ifBlank { "Watch Trailer" },
+                            style = MaterialTheme.typography.labelLarge,
+                            color = Color.White,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        if (hasPlaybackError) {
+                            Text(
+                                text = "Embedded player unavailable — tap to open in YouTube",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = Color.White.copy(alpha = 0.85f),
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
                         }
-                        webViewHolder[0] = null
                     }
                 }
+            } else {
+                val playerViewHolder = remember { arrayOfNulls<YouTubePlayerView>(1) }
+                DisposableEffect(lifecycleOwner, trailer.key) {
+                    onDispose {
+                        playerViewHolder[0]?.let { view ->
+                            lifecycleOwner.lifecycle.removeObserver(view)
+                            view.release()
+                        }
+                        playerViewHolder[0] = null
+                    }
+                }
+
                 AndroidView(
                     factory = { ctx ->
-                        WebView(ctx).apply {
+                        YouTubePlayerView(ctx).apply {
                             layoutParams = ViewGroup.LayoutParams(
                                 ViewGroup.LayoutParams.MATCH_PARENT,
                                 ViewGroup.LayoutParams.MATCH_PARENT,
                             )
-                            setBackgroundColor(android.graphics.Color.BLACK)
-                            settings.javaScriptEnabled = true
-                            settings.domStorageEnabled = true
-                            settings.mediaPlaybackRequiresUserGesture = false
-                            settings.mixedContentMode = WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
-                            webChromeClient = WebChromeClient()
-                            webViewClient = WebViewClient()
-                            loadUrl(trailer.youtubeEmbedUrl)
-                            webViewHolder[0] = this
+                            enableAutomaticInitialization = false
+                            lifecycleOwner.lifecycle.addObserver(this)
+
+                            val options = IFramePlayerOptions.Builder()
+                                .controls(1)
+                                .rel(0)
+                                .origin("https://www.youtube.com")
+                                .build()
+
+                            initialize(
+                                object : AbstractYouTubePlayerListener() {
+                                    override fun onReady(youTubePlayer: YouTubePlayer) {
+                                        youTubePlayer.loadVideo(trailer.key, 0f)
+                                    }
+
+                                    override fun onError(
+                                        youTubePlayer: YouTubePlayer,
+                                        error: PlayerConstants.PlayerError,
+                                    ) {
+                                        post {
+                                            hasPlaybackError = true
+                                        }
+                                    }
+                                },
+                                true,
+                                options,
+                            )
+                            playerViewHolder[0] = this
                         }
                     },
                     modifier = Modifier
                         .fillMaxSize()
-                        .testTag("trailer_webview"),
+                        .testTag("trailer_youtube_player_view"),
                 )
             }
         }
@@ -225,13 +272,10 @@ fun YouTubeTrailerPlayer(
             )
             Spacer(modifier = Modifier.width(8.dp))
             OutlinedButton(
-                onClick = {
-                    val intent = Intent(Intent.ACTION_VIEW, Uri.parse(trailer.youtubeWatchUrl))
-                    context.startActivity(intent)
-                },
+                onClick = { openYouTubeTrailerExternally(context, trailer) },
                 shape = RoundedCornerShape(10.dp),
                 modifier = Modifier
-                    .height(40.dp)
+                    .height(48.dp)
                     .testTag("open_youtube_external_button"),
             ) {
                 Icon(
@@ -245,6 +289,23 @@ fun YouTubeTrailerPlayer(
                     fontWeight = FontWeight.SemiBold,
                 )
             }
+        }
+    }
+}
+
+private fun openYouTubeTrailerExternally(
+    context: Context,
+    trailer: MediaVideo,
+) {
+    val appIntent = Intent(Intent.ACTION_VIEW, Uri.parse("vnd.youtube:${trailer.key}"))
+    val webIntent = Intent(Intent.ACTION_VIEW, Uri.parse(trailer.youtubeWatchUrl))
+    try {
+        context.startActivity(appIntent)
+    } catch (_: ActivityNotFoundException) {
+        try {
+            context.startActivity(webIntent)
+        } catch (_: ActivityNotFoundException) {
+            // No browser or YouTube client installed
         }
     }
 }

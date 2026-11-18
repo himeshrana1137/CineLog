@@ -40,6 +40,9 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.minimumInteractiveComponentSize
@@ -52,15 +55,19 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
+import com.example.R
 import com.example.data.model.CineStatsSummary
 import com.example.data.model.PersonStat
-import com.example.data.model.QuickReaction
+import com.example.data.model.StatsMediaFilter
 import com.example.data.model.WatchedMovie
 import com.example.ui.components.CineEmptyState
 import com.example.ui.components.GenreAnalyticsSection
@@ -76,17 +83,20 @@ private enum class PeopleStatTab(val label: String) {
     DIRECTORS("Top Directors"),
 }
 
-@OptIn(ExperimentalLayoutApi::class)
+@OptIn(ExperimentalLayoutApi::class, ExperimentalMaterial3Api::class)
 @Composable
 fun StatsScreen(
     stats: CineStatsSummary,
+    selectedFilter: StatsMediaFilter,
+    totalAllWatchedCount: Int,
     isMigrating: Boolean,
+    onFilterSelected: (StatsMediaFilter) -> Unit,
     onPersonClick: (roleLabel: String, stat: PersonStat) -> Unit,
     onRunMigrationClick: () -> Unit,
     onExploreClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    if (stats.totalTitles == 0) {
+    if (totalAllWatchedCount == 0) {
         CineEmptyState(
             title = "No stats yet",
             subtitle = "Mark movies or TV series as watched to unlock your Watch-Time Calculator, Top Actors, and Director Insights.",
@@ -100,11 +110,93 @@ fun StatsScreen(
     var peopleTab by remember { mutableStateOf(PeopleStatTab.ACTORS) }
     val numFormat = remember { NumberFormat.getIntegerInstance(Locale.US) }
 
-    LazyColumn(
-        modifier = modifier.fillMaxSize(),
-        contentPadding = PaddingValues(16.dp),
-        verticalArrangement = Arrangement.spacedBy(14.dp),
-    ) {
+    Column(modifier = modifier.fillMaxSize()) {
+        // Segmented Filter Bar & Watched Pill
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(MaterialTheme.colorScheme.background)
+                .padding(horizontal = 16.dp, vertical = 10.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = "YOUR CINE STATS",
+                    style = MaterialTheme.typography.titleMedium,
+                    color = MaterialTheme.colorScheme.onBackground,
+                    fontWeight = FontWeight.Bold,
+                )
+                Surface(
+                    color = CineElevated,
+                    shape = RoundedCornerShape(50),
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
+                    modifier = Modifier.testTag("stats_watched_count_badge"),
+                ) {
+                    Text(
+                        text = stringResource(R.string.movies_watched_count, totalAllWatchedCount),
+                        style = MaterialTheme.typography.labelMedium,
+                        color = CineGold,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+                    )
+                }
+            }
+
+            SingleChoiceSegmentedButtonRow(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("stats_media_filter_row"),
+            ) {
+                StatsMediaFilter.entries.forEachIndexed { index, filter ->
+                    SegmentedButton(
+                        selected = selectedFilter == filter,
+                        onClick = { onFilterSelected(filter) },
+                        shape = SegmentedButtonDefaults.itemShape(
+                            index = index,
+                            count = StatsMediaFilter.entries.size,
+                        ),
+                        colors = SegmentedButtonDefaults.colors(
+                            activeContainerColor = MaterialTheme.colorScheme.primaryContainer,
+                            activeContentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                            inactiveContainerColor = CineElevated,
+                            inactiveContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                        ),
+                        modifier = Modifier.testTag("stats_filter_${filter.name.lowercase()}"),
+                        label = {
+                            Text(
+                                text = filter.label,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        },
+                    )
+                }
+            }
+        }
+
+        if (stats.totalTitles == 0) {
+            CineEmptyState(
+                title = "No ${selectedFilter.pluralNoun.lowercase()} watched yet",
+                subtitle = "Log ${selectedFilter.pluralNoun.lowercase()} in Discover or switch the filter above to view your full stats.",
+                actionLabel = "Show All Titles",
+                onActionClick = { onFilterSelected(StatsMediaFilter.ALL) },
+                modifier = Modifier.fillMaxSize(),
+            )
+            return
+        }
+
+        Box(modifier = Modifier.fillMaxSize()) {
+            LazyColumn(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .navigationBarsPadding(),
+                contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 96.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp),
+            ) {
         // 1. Watch-Time Calculator Hero Card
         item {
             Surface(
@@ -307,6 +399,7 @@ fun StatsScreen(
         item {
             GenreAnalyticsSection(
                 stats = stats,
+                mediaFilter = selectedFilter,
                 isMigrating = isMigrating,
                 onRunMigrationClick = onRunMigrationClick,
             )
@@ -444,6 +537,24 @@ fun StatsScreen(
                     }
                 }
             }
+        }
+            }
+
+            // Soft top fade overlay so scrolled cards blend seamlessly under the header
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(14.dp)
+                    .align(Alignment.TopCenter)
+                    .background(
+                        Brush.verticalGradient(
+                            colors = listOf(
+                                MaterialTheme.colorScheme.background,
+                                Color.Transparent,
+                            )
+                        )
+                    )
+            )
         }
     }
 }

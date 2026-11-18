@@ -67,7 +67,30 @@ function validTvPayload(uid, overrides = {}) {
     numberOfSeasons: 5,
     numberOfEpisodes: 62,
     watchedSeason: 4,
+    status: "WATCHING",
+    watchedEpisodesCount: 18,
+    watchedSeasonsCount: 1,
+    watchedRuntimeMinutes: 846,
+    nextUpSeason: 2,
+    nextUpEpisode: 5,
+    currentSeason: 2,
     watchLog: ["2026-11-12"],
+    watchedAt: pastTime,
+    updatedAt: pastTime,
+    ...overrides,
+  };
+}
+
+function validSeasonPayload(uid, overrides = {}) {
+  const pastTime = new Date(Date.now() - 2000);
+  return {
+    userId: uid,
+    tvId: 1396,
+    seasonNumber: 1,
+    episodeCount: 7,
+    watched: true,
+    watchedEpisodes: [1, 2, 3, 4, 5, 6, 7],
+    watchedRuntimeMinutes: 336,
     watchedAt: pastTime,
     updatedAt: pastTime,
     ...overrides,
@@ -181,9 +204,34 @@ test("Authenticated owner: CRUD on watched (with watchLog), watchlist, custom li
 
   await assertSucceeds(movieDoc.set(validMoviePayload(ALICE_UID)));
   await assertSucceeds(tvDoc.set(validTvPayload(ALICE_UID)));
+  const seasonDoc = tvDoc.collection("seasons").doc("1");
+  await assertSucceeds(seasonDoc.set(validSeasonPayload(ALICE_UID)));
   await assertSucceeds(watchlistDoc.set(validWatchlistPayload(ALICE_UID)));
   await assertSucceeds(listDoc.set(validCustomListPayload(ALICE_UID)));
   await assertSucceeds(settingsDoc.set(validSettingsPayload(ALICE_UID)));
+
+  await assertSucceeds(
+    seasonDoc.update({
+      watched: false,
+      watchedEpisodes: [1, 2, 3],
+      watchedRuntimeMinutes: 144,
+      watchedAt: null,
+      updatedAt: new Date(Date.now() - 1000),
+    })
+  );
+
+  await assertSucceeds(
+    tvDoc.update({
+      status: "WATCHING",
+      watchedEpisodesCount: 3,
+      watchedSeasonsCount: 0,
+      watchedRuntimeMinutes: 144,
+      nextUpSeason: 1,
+      nextUpEpisode: 4,
+      currentSeason: 1,
+      updatedAt: new Date(Date.now() - 1000),
+    })
+  );
 
   await assertSucceeds(
     movieDoc.update({
@@ -206,19 +254,21 @@ test("Authenticated owner: CRUD on watched (with watchLog), watchlist, custom li
   );
 
   await assertSucceeds(
-    settingsDoc.set(validSettingsPayload(ALICE_UID, { accentPreset: "custom", accentHex: "#00FFAA" }))
+    settingsDoc.set(validSettingsPayload(ALICE_UID, { accentPreset: "custom", accentHex: "#00FFAA", tvMigrationCompleted: true }))
   );
 
+  await assertSucceeds(seasonDoc.delete());
   await assertSucceeds(listDoc.delete());
   await assertSucceeds(watchlistDoc.delete());
   await assertSucceeds(movieDoc.delete());
   await assertSucceeds(tvDoc.delete());
 });
 
-test("Cross-user isolation: Bob cannot read or write Alice's watched, watchlist, lists, or settings", async () => {
+test("Cross-user isolation: Bob cannot read or write Alice's watched, seasons, watchlist, lists, or settings", async () => {
   await testEnv.withSecurityRulesDisabled(async (context) => {
     const aliceUser = context.firestore().collection("users").doc(ALICE_UID);
     await aliceUser.collection("watched").doc("tv_1396").set(validTvPayload(ALICE_UID));
+    await aliceUser.collection("watched").doc("tv_1396").collection("seasons").doc("1").set(validSeasonPayload(ALICE_UID));
     await aliceUser.collection("watchlist").doc("27205").set(validWatchlistPayload(ALICE_UID));
     await aliceUser.collection("lists").doc("scifi_list").set(validCustomListPayload(ALICE_UID));
     await aliceUser.collection("settings").doc("preferences").set(validSettingsPayload(ALICE_UID));
@@ -226,28 +276,35 @@ test("Cross-user isolation: Bob cannot read or write Alice's watched, watchlist,
 
   const bobDb = testEnv.authenticatedContext(BOB_UID).firestore();
   const aliceWatched = bobDb.collection("users").doc(ALICE_UID).collection("watched").doc("tv_1396");
+  const aliceSeason = aliceWatched.collection("seasons").doc("1");
   const aliceWatchlist = bobDb.collection("users").doc(ALICE_UID).collection("watchlist").doc("27205");
   const aliceList = bobDb.collection("users").doc(ALICE_UID).collection("lists").doc("scifi_list");
   const aliceSettings = bobDb.collection("users").doc(ALICE_UID).collection("settings").doc("preferences");
 
   await assertFails(aliceWatched.get());
+  await assertFails(aliceSeason.get());
   await assertFails(aliceWatchlist.get());
   await assertFails(aliceList.get());
   await assertFails(aliceSettings.get());
+  await assertFails(aliceSeason.set(validSeasonPayload(BOB_UID)));
   await assertFails(aliceWatchlist.set(validWatchlistPayload(BOB_UID)));
   await assertFails(aliceList.set(validCustomListPayload(BOB_UID)));
   await assertFails(aliceSettings.set(validSettingsPayload(BOB_UID)));
+  await assertFails(aliceSeason.delete());
   await assertFails(aliceWatched.delete());
 });
 
-test("Schema validation: rejects invalid reaction, list name, accentHex, settingId, and ghost fields", async () => {
+test("Schema validation: rejects invalid reaction, status, season payload, list name, accentHex, settingId, and ghost fields", async () => {
   const aliceDb = testEnv.authenticatedContext(ALICE_UID).firestore();
   const movieDoc = aliceDb.collection("users").doc(ALICE_UID).collection("watched").doc("550");
+  const tvDoc = aliceDb.collection("users").doc(ALICE_UID).collection("watched").doc("tv_1396");
+  const seasonDoc = tvDoc.collection("seasons").doc("1");
   const listDoc = aliceDb.collection("users").doc(ALICE_UID).collection("lists").doc("bad_list");
   const settingsDoc = aliceDb.collection("users").doc(ALICE_UID).collection("settings").doc("preferences");
   const wrongSettingsDoc = aliceDb.collection("users").doc(ALICE_UID).collection("settings").doc("other");
 
   await assertFails(movieDoc.set(validMoviePayload(ALICE_UID, { reaction: "invalid_emoji" })));
+  await assertFails(tvDoc.set(validTvPayload(ALICE_UID, { status: "UNKNOWN_STATUS" })));
   await assertFails(movieDoc.set(validMoviePayload(ALICE_UID, { extraField: true })));
   await assertFails(listDoc.set(validCustomListPayload(ALICE_UID, { name: "" })));
   await assertFails(listDoc.set(validCustomListPayload(ALICE_UID, { extraField: "nope" })));

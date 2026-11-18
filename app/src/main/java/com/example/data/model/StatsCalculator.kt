@@ -12,6 +12,12 @@ data class ChartSlice(
     val percentage: Float,
 )
 
+enum class StatsMediaFilter(val label: String, val pluralNoun: String) {
+    ALL("All", "Titles"),
+    MOVIES("Movies", "Movies"),
+    TV_SERIES("TV Series", "TV Series"),
+}
+
 data class ChartPoint(
     val label: String,
     val count: Int,
@@ -32,6 +38,7 @@ data class CineStatsSummary(
     val languageStats: List<LanguageChipCount> = emptyList(),
     val reactionCounts: Map<QuickReaction, Int> = emptyMap(),
     val genreStats: List<ChartSlice> = emptyList(),
+    val totalGenreTags: Int = 0,
     val releaseYearStats: List<ChartPoint> = emptyList(),
     val userRatingDistribution: List<ChartPoint> = emptyList(),
     val monthlyWatchStats: List<ChartPoint> = emptyList(),
@@ -39,32 +46,62 @@ data class CineStatsSummary(
 )
 
 object StatsCalculator {
-    fun computeStats(watched: List<WatchedMovie>): CineStatsSummary {
-        if (watched.isEmpty()) return CineStatsSummary()
+    fun filterItems(
+        watched: List<WatchedMovie>,
+        filter: StatsMediaFilter,
+    ): List<WatchedMovie> = when (filter) {
+        StatsMediaFilter.ALL -> watched
+        StatsMediaFilter.MOVIES -> watched.filter { !it.isTv }
+        StatsMediaFilter.TV_SERIES -> watched.filter { it.isTv }
+    }
 
-        val moviesCount = watched.count { !it.isTv }
-        val tvCount = watched.count { it.isTv }
-        val totalWatchEvents = watched.sumOf { it.watchCount }
+    fun normalizeGenreLabel(raw: String): String {
+        val trimmed = raw.trim()
+        return when {
+            trimmed.equals("Science Fiction", ignoreCase = true) -> "Sci-Fi"
+            trimmed.equals("Action & Adventure", ignoreCase = true) -> "Action & Adv."
+            trimmed.equals("Sci-Fi & Fantasy", ignoreCase = true) -> "Sci-Fi & Fantasy"
+            else -> trimmed
+        }
+    }
 
-        val totalMinutes = watched.sumOf { item ->
-            val baseRuntime = if (!item.isTv) {
-                item.runtime.toLong().coerceAtLeast(0L)
+    fun computeStats(
+        watched: List<WatchedMovie>,
+        filter: StatsMediaFilter = StatsMediaFilter.ALL,
+    ): CineStatsSummary {
+        val scoped = filterItems(watched, filter)
+        if (scoped.isEmpty()) return CineStatsSummary()
+
+        val moviesCount = scoped.count { !it.isTv }
+        val tvCount = scoped.count { it.isTv }
+        val totalWatchEvents = scoped.sumOf { it.watchCount }
+
+        val totalMinutes = scoped.sumOf { item ->
+            if (!item.isTv) {
+                item.runtime.toLong().coerceAtLeast(0L) * item.watchCount.coerceAtLeast(1)
             } else {
-                val perEp = item.runtime.toLong().coerceAtLeast(0L)
-                if (perEp == 0L) 0L
-                else if (item.watchedSeason > 0 && item.numberOfSeasons > 0 && item.numberOfEpisodes > 0) {
-                    val avgEpsPerSeason = (item.numberOfEpisodes / item.numberOfSeasons).coerceAtLeast(1)
-                    perEp * avgEpsPerSeason
-                } else if (item.numberOfEpisodes > 0) {
-                    perEp * item.numberOfEpisodes
-                } else {
-                    perEp
+                when {
+                    item.watchedRuntimeMinutes > 0 -> item.watchedRuntimeMinutes.toLong()
+                    item.watchedEpisodesCount > 0 -> {
+                        item.watchedEpisodesCount.toLong() * item.runtime.toLong().coerceAtLeast(0L)
+                    }
+                    item.status.equals(TvWatchStatus.NOT_STARTED.key, ignoreCase = true) -> 0L
+                    else -> {
+                        val perEp = item.runtime.toLong().coerceAtLeast(0L)
+                        val legacyEpisodes = when {
+                            perEp == 0L -> 0L
+                            item.watchedSeason > 0 && item.numberOfSeasons > 0 && item.numberOfEpisodes > 0 ->
+                                (item.numberOfEpisodes / item.numberOfSeasons).coerceAtLeast(1).toLong()
+                            item.numberOfEpisodes > 0 -> item.numberOfEpisodes.toLong()
+                            else -> 1L
+                        }
+                        perEp * legacyEpisodes
+                    }
                 }
             }
-            baseRuntime * item.watchCount.coerceAtLeast(1)
         }
 
-        val itemsWithRuntime = watched.filter { it.runtime > 0 }
+        val itemsWithRuntime = scoped.filter { it.runtime > 0 }
         val avgRuntime = if (itemsWithRuntime.isNotEmpty()) {
             (itemsWithRuntime.sumOf { it.runtime } / itemsWithRuntime.size)
         } else {
@@ -77,16 +114,17 @@ object StatsCalculator {
         val formattedTime = "$totalHours ${if (totalHours == 1L) "hour" else "hours"} = " +
             "$days ${if (days == 1L) "day" else "days"} $remHours ${if (remHours == 1L) "hour" else "hours"}"
 
-        val rated = watched.filter { it.userRating > 0 }
+        val rated = scoped.filter { it.userRating in 1..5 }
         val avgRating = if (rated.isNotEmpty()) rated.map { it.userRating }.average() else 0.0
 
         val actorMap = linkedMapOf<String, MutableList<WatchedMovie>>()
         val directorMap = linkedMapOf<String, MutableList<WatchedMovie>>()
         val genreCounts = linkedMapOf<String, Int>()
         val yearCounts = linkedMapOf<Int, Int>()
+        var unknownYearCount = 0
         val monthCounts = linkedMapOf<String, Int>()
 
-        watched.forEach { item ->
+        scoped.forEach { item ->
             item.cast.distinct().forEach { actor ->
                 if (actor.isNotBlank()) {
                     actorMap.getOrPut(actor) { mutableListOf() }.add(item)
@@ -97,16 +135,16 @@ object StatsCalculator {
                     directorMap.getOrPut(director) { mutableListOf() }.add(item)
                 }
             }
-            item.genres.distinct().forEach { genre ->
-                val clean = genre.trim()
-                if (clean.isNotBlank()) {
-                    genreCounts[clean] = (genreCounts[clean] ?: 0) + 1
+            item.genres.map { normalizeGenreLabel(it) }.distinct().forEach { genre ->
+                if (genre.isNotBlank()) {
+                    genreCounts[genre] = (genreCounts[genre] ?: 0) + 1
                 }
             }
-            item.releaseDate.take(4).toIntOrNull()?.let { yr ->
-                if (yr in 1888..2100) {
-                    yearCounts[yr] = (yearCounts[yr] ?: 0) + 1
-                }
+            val parsedYear = item.releaseDate.take(4).toIntOrNull()?.takeIf { it in 1888..2100 }
+            if (parsedYear != null) {
+                yearCounts[parsedYear] = (yearCounts[parsedYear] ?: 0) + 1
+            } else {
+                unknownYearCount += 1
             }
             item.resolvedWatchDates.forEach { isoDate ->
                 if (isoDate.length >= 7) {
@@ -126,20 +164,21 @@ object StatsCalculator {
             .sortedWith(compareByDescending<PersonStat> { it.count }.thenBy { it.name })
             .take(25)
 
-        val langStats = buildLanguageChips(watched.map { it.originalLanguage })
+        val langStats = buildLanguageChips(scoped.map { it.originalLanguage })
 
         val reactionCounts = QuickReaction.entries.associateWith { reaction ->
-            watched.count { it.reaction == reaction.key }
+            scoped.count { it.reaction == reaction.key }
         }
 
-        val totalGenreTags = genreCounts.values.sum().coerceAtLeast(1)
+        val totalGenreTags = genreCounts.values.sum()
+        val safeGenreDenom = totalGenreTags.coerceAtLeast(1)
         val sortedGenres = genreCounts.entries
             .sortedWith(compareByDescending<Map.Entry<String, Int>> { it.value }.thenBy { it.key })
         val topGenres = sortedGenres.take(6).map { (genre, count) ->
             ChartSlice(
                 label = genre,
                 count = count,
-                percentage = count.toFloat() / totalGenreTags.toFloat(),
+                percentage = count.toFloat() / safeGenreDenom.toFloat(),
             )
         }
         val otherGenreCount = sortedGenres.drop(6).sumOf { it.value }
@@ -147,33 +186,54 @@ object StatsCalculator {
             topGenres + ChartSlice(
                 label = "Other",
                 count = otherGenreCount,
-                percentage = otherGenreCount.toFloat() / totalGenreTags.toFloat(),
+                percentage = otherGenreCount.toFloat() / safeGenreDenom.toFloat(),
             )
         } else {
             topGenres
         }
 
-        val releaseYearStats = yearCounts.entries
-            .sortedBy { it.key }
-            .takeLast(10)
-            .map { (yr, count) -> ChartPoint(label = yr.toString(), count = count) }
+        // Release Year: include ALL titles; if > 10 years, keep latest 8 years + "Older"; plus "Unknown"
+        val sortedYearEntries = yearCounts.entries.sortedBy { it.key }
+        val releaseYearStats = buildList {
+            if (sortedYearEntries.size > 10) {
+                val recent8 = sortedYearEntries.takeLast(8)
+                val olderCount = sortedYearEntries.dropLast(8).sumOf { it.value }
+                if (olderCount > 0) {
+                    add(ChartPoint(label = "Older", count = olderCount))
+                }
+                recent8.forEach { (yr, count) ->
+                    add(ChartPoint(label = yr.toString(), count = count))
+                }
+            } else {
+                sortedYearEntries.forEach { (yr, count) ->
+                    add(ChartPoint(label = yr.toString(), count = count))
+                }
+            }
+            if (unknownYearCount > 0) {
+                add(ChartPoint(label = "Unknown", count = unknownYearCount))
+            }
+        }
 
+        val unratedCount = scoped.count { it.userRating !in 1..5 }
         val userRatingDistribution = (1..5).map { stars ->
             ChartPoint(
                 label = "${stars}★",
-                count = watched.count { it.userRating == stars },
+                count = scoped.count { it.userRating == stars },
             )
-        }
+        } + ChartPoint(
+            label = "Unrated",
+            count = unratedCount,
+        )
 
         val monthlyWatchStats = monthCounts.entries
             .sortedBy { it.key }
             .takeLast(10)
             .map { (ym, count) -> ChartPoint(label = formatShortMonth(ym), count = count) }
 
-        val missingCount = watched.count { it.needsMetadataBackfill }
+        val missingCount = scoped.count { it.needsMetadataBackfill }
 
         return CineStatsSummary(
-            totalTitles = watched.size,
+            totalTitles = scoped.size,
             totalWatchEvents = totalWatchEvents,
             moviesCount = moviesCount,
             tvCount = tvCount,
@@ -187,6 +247,7 @@ object StatsCalculator {
             languageStats = langStats,
             reactionCounts = reactionCounts,
             genreStats = genreStats,
+            totalGenreTags = totalGenreTags,
             releaseYearStats = releaseYearStats,
             userRatingDistribution = userRatingDistribution,
             monthlyWatchStats = monthlyWatchStats,

@@ -1,8 +1,9 @@
 package com.example.ui.screens
 
 import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -10,6 +11,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -19,7 +21,7 @@ import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
@@ -46,12 +48,17 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.example.R
 import com.example.data.model.LanguageChipCount
@@ -98,6 +105,7 @@ fun DiscoverScreen(
     modifier: Modifier = Modifier,
 ) {
     val focusManager = LocalFocusManager.current
+    val mediaChipsRowState = rememberLazyListState()
 
     Column(modifier = modifier.fillMaxSize()) {
         // Search Bar for Movies & TV Shows
@@ -152,43 +160,67 @@ fun DiscoverScreen(
                 .testTag("movie_search_input"),
         )
 
-        // Media Type Filter Chips: All | Movies | TV Shows
-        Row(
+        // Media Type Filter Chips: All | Movies | TV Shows (edge contentPadding + right fade)
+        Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .horizontalScroll(rememberScrollState())
-                .padding(horizontal = 16.dp, vertical = 2.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalAlignment = Alignment.CenterVertically,
+                .padding(vertical = 2.dp),
         ) {
-            DiscoverMediaFilter.entries.forEach { filter ->
-                FilterChip(
-                    selected = selectedMediaFilter == filter,
-                    onClick = { onMediaFilterSelected(filter) },
-                    label = { Text(filter.label) },
-                    leadingIcon = when (filter) {
-                        DiscoverMediaFilter.ALL -> null
-                        DiscoverMediaFilter.MOVIES -> ({
-                            Icon(
-                                imageVector = Icons.Rounded.Movie,
-                                contentDescription = null,
-                                modifier = Modifier.size(16.dp),
+            LazyRow(
+                state = mediaChipsRowState,
+                contentPadding = PaddingValues(horizontal = 16.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                items(DiscoverMediaFilter.entries, key = { it.name }) { filter ->
+                    FilterChip(
+                        selected = selectedMediaFilter == filter,
+                        onClick = { onMediaFilterSelected(filter) },
+                        label = {
+                            Text(
+                                text = filter.label,
+                                maxLines = 1,
+                                softWrap = false,
                             )
-                        })
-                        DiscoverMediaFilter.TV_SHOWS -> ({
-                            Icon(
-                                imageVector = Icons.Rounded.LiveTv,
-                                contentDescription = null,
-                                modifier = Modifier.size(16.dp),
+                        },
+                        leadingIcon = when (filter) {
+                            DiscoverMediaFilter.ALL -> null
+                            DiscoverMediaFilter.MOVIES -> ({
+                                Icon(
+                                    imageVector = Icons.Rounded.Movie,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(16.dp),
+                                )
+                            })
+                            DiscoverMediaFilter.TV_SHOWS -> ({
+                                Icon(
+                                    imageVector = Icons.Rounded.LiveTv,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(16.dp),
+                                )
+                            })
+                        },
+                        colors = FilterChipDefaults.filterChipColors(
+                            selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
+                            selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                            selectedLeadingIconColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                        ),
+                        modifier = Modifier.testTag("discover_filter_${filter.name.lowercase()}"),
+                    )
+                }
+            }
+            if (mediaChipsRowState.canScrollForward) {
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.CenterEnd)
+                        .width(28.dp)
+                        .height(42.dp)
+                        .background(
+                            Brush.horizontalGradient(
+                                colors = listOf(Color.Transparent, MaterialTheme.colorScheme.background)
                             )
-                        })
-                    },
-                    colors = FilterChipDefaults.filterChipColors(
-                        selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
-                        selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                        selectedLeadingIconColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                    ),
-                    modifier = Modifier.testTag("discover_filter_${filter.name.lowercase()}"),
+                        )
                 )
             }
         }
@@ -201,7 +233,8 @@ fun DiscoverScreen(
                 selectedLanguage = selectedLanguage,
                 onLanguageSelected = onLanguageSelected,
                 testTagPrefix = "discover",
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp),
+                contentPadding = PaddingValues(horizontal = 16.dp),
+                modifier = Modifier.padding(vertical = 2.dp),
             )
         }
 
@@ -209,10 +242,12 @@ fun DiscoverScreen(
             is DiscoverUiState.Loading -> {
                 LazyVerticalGrid(
                     columns = GridCells.Fixed(columnsCount),
-                    contentPadding = PaddingValues(16.dp),
+                    contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 96.dp),
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp),
-                    modifier = Modifier.fillMaxSize(),
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .navigationBarsPadding(),
                 ) {
                     items(6) {
                         MovieSkeletonCard()
@@ -313,7 +348,10 @@ fun DiscoverScreen(
                         modifier = Modifier.fillMaxSize(),
                     )
                 } else {
-                    val headerText = if (discoverState.isSearchResult) {
+                    val trimmedQuery = searchQuery.trim()
+                    val headerText = if (discoverState.isSearchResult && trimmedQuery.isNotEmpty()) {
+                        "SEARCH RESULTS FOR \"${trimmedQuery.uppercase()}\""
+                    } else if (discoverState.isSearchResult) {
                         stringResource(R.string.search_results_title)
                     } else {
                         when (discoverState.mediaFilter) {
@@ -323,12 +361,22 @@ fun DiscoverScreen(
                         }
                     }
 
+                    val popularTvShows = remember(discoverState, filteredMovies) {
+                        if (!discoverState.isSearchResult && discoverState.mediaFilter == DiscoverMediaFilter.ALL) {
+                            filteredMovies.filter { it.isTv }.take(12)
+                        } else {
+                            emptyList()
+                        }
+                    }
+
                     LazyVerticalGrid(
                         columns = GridCells.Fixed(columnsCount),
-                        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 24.dp),
+                        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 96.dp),
                         horizontalArrangement = Arrangement.spacedBy(12.dp),
                         verticalArrangement = Arrangement.spacedBy(12.dp),
-                        modifier = Modifier.fillMaxSize(),
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .navigationBarsPadding(),
                     ) {
                         // What to Watch Today? "Surprise Me" banner
                         if (!discoverState.isSearchResult) {
@@ -394,48 +442,26 @@ fun DiscoverScreen(
                                         .testTag("for_you_recommendations_section"),
                                     verticalArrangement = Arrangement.spacedBy(8.dp),
                                 ) {
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.SpaceBetween,
-                                    ) {
-                                        Row(
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                            modifier = Modifier.weight(1f),
-                                        ) {
-                                            Icon(
-                                                imageVector = Icons.Rounded.AutoAwesome,
-                                                contentDescription = null,
-                                                tint = CineGold,
-                                                modifier = Modifier.size(18.dp),
-                                            )
-                                            Column {
-                                                Text(
-                                                    text = "FOR YOU",
-                                                    style = MaterialTheme.typography.headlineLarge,
-                                                    color = MaterialTheme.colorScheme.onBackground,
+                                    DiscoverSectionHeader(
+                                        title = "FOR YOU",
+                                        icon = Icons.Rounded.AutoAwesome,
+                                        iconTint = CineGold,
+                                        subtitle = if (forYouState.seedTitles.isNotEmpty()) {
+                                            "Because you loved ${forYouState.seedTitles.take(2).joinToString(" & ")}"
+                                        } else null,
+                                        trailing = {
+                                            IconButton(
+                                                onClick = onRefreshRecommendations,
+                                                modifier = Modifier.minimumInteractiveComponentSize(),
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.Rounded.Refresh,
+                                                    contentDescription = "Refresh recommendations",
+                                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
                                                 )
-                                                if (forYouState.seedTitles.isNotEmpty()) {
-                                                    Text(
-                                                        text = "Because you loved ${forYouState.seedTitles.take(2).joinToString(" & ")}",
-                                                        style = MaterialTheme.typography.labelMedium,
-                                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                                    )
-                                                }
                                             }
-                                        }
-                                        IconButton(
-                                            onClick = onRefreshRecommendations,
-                                            modifier = Modifier.minimumInteractiveComponentSize(),
-                                        ) {
-                                            Icon(
-                                                imageVector = Icons.Rounded.Refresh,
-                                                contentDescription = "Refresh recommendations",
-                                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                            )
-                                        }
-                                    }
+                                        },
+                                    )
 
                                     LazyRow(
                                         horizontalArrangement = Arrangement.spacedBy(12.dp),
@@ -467,26 +493,59 @@ fun DiscoverScreen(
                             }
                         }
 
-                        item(span = { GridItemSpan(maxLineSpan) }) {
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(vertical = 4.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            ) {
-                                Icon(
-                                    imageVector = if (discoverState.isSearchResult) Icons.Rounded.Search else Icons.AutoMirrored.Rounded.TrendingUp,
-                                    contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.size(18.dp),
-                                )
-                                Text(
-                                    text = headerText,
-                                    style = MaterialTheme.typography.headlineLarge,
-                                    color = MaterialTheme.colorScheme.onBackground,
-                                )
+                        // "Popular TV Shows" horizontal carousel when viewing All
+                        if (popularTvShows.isNotEmpty()) {
+                            item(span = { GridItemSpan(maxLineSpan) }) {
+                                Column(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(vertical = 4.dp)
+                                        .testTag("popular_tv_shows_section"),
+                                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                                ) {
+                                    DiscoverSectionHeader(
+                                        title = "POPULAR TV SHOWS",
+                                        icon = Icons.Rounded.LiveTv,
+                                        iconTint = MaterialTheme.colorScheme.primary,
+                                    )
+
+                                    LazyRow(
+                                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                        contentPadding = PaddingValues(end = 8.dp),
+                                    ) {
+                                        items(
+                                            items = popularTvShows,
+                                            key = { "pop_tv_${it.uniqueKey}" },
+                                        ) { show ->
+                                            val watchedEntry = watchedMap[show.uniqueKey]
+                                            val inWatchlist = watchlistMap.containsKey(show.uniqueKey)
+                                            DiscoverMovieCard(
+                                                movie = show,
+                                                isWatched = watchedEntry != null,
+                                                isInWatchlist = inWatchlist,
+                                                isToggling = pendingToggleKeys.contains(show.uniqueKey),
+                                                isWatchlistToggling = pendingWatchlistKeys.contains(show.uniqueKey),
+                                                userRating = watchedEntry?.userRating ?: 0,
+                                                providers = watchProvidersCache[show.uniqueKey],
+                                                onCardClick = { onMovieClick(show) },
+                                                onToggleWatched = { onToggleWatched(show) },
+                                                onToggleWatchlist = { onToggleWatchlist(show) },
+                                                onAddToList = { onAddToList(show) },
+                                                modifier = Modifier.width(172.dp),
+                                            )
+                                        }
+                                    }
+                                }
                             }
+                        }
+
+                        item(span = { GridItemSpan(maxLineSpan) }) {
+                            DiscoverSectionHeader(
+                                title = headerText,
+                                icon = if (discoverState.isSearchResult) Icons.Rounded.Search else Icons.AutoMirrored.Rounded.TrendingUp,
+                                iconTint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.padding(vertical = 4.dp),
+                            )
                         }
 
                         items(
@@ -513,5 +572,53 @@ fun DiscoverScreen(
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun DiscoverSectionHeader(
+    title: String,
+    icon: ImageVector,
+    iconTint: Color,
+    subtitle: String? = null,
+    trailing: (@Composable () -> Unit)? = null,
+    modifier: Modifier = Modifier,
+) {
+    Row(
+        modifier = modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween,
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            modifier = Modifier.weight(1f),
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                tint = iconTint,
+                modifier = Modifier.size(18.dp),
+            )
+            Column {
+                Text(
+                    text = title,
+                    style = MaterialTheme.typography.headlineLarge,
+                    color = MaterialTheme.colorScheme.onBackground,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                if (!subtitle.isNullOrBlank()) {
+                    Text(
+                        text = subtitle,
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+            }
+        }
+        trailing?.invoke()
     }
 }

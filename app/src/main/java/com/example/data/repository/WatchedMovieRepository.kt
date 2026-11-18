@@ -8,6 +8,7 @@ import com.example.data.model.MediaType
 import com.example.data.model.MovieDetails
 import com.example.data.model.MovieSummary
 import com.example.data.model.QuickReaction
+import com.example.data.model.TvWatchStatus
 import com.example.data.model.WatchedMovie
 import com.example.data.model.firestoreWatchedDocId
 import com.example.data.model.todayIsoDate
@@ -109,6 +110,7 @@ class WatchedMovieRepository(
         watchedSeason: Int = 0,
         reaction: String = "",
         watchDate: String = todayIsoDate(),
+        initialTvStatus: String = TvWatchStatus.COMPLETED.key,
     ): Result<Unit> {
         val uid = try {
             requireUserId()
@@ -151,6 +153,9 @@ class WatchedMovieRepository(
                 put("directors", emptyList<String>())
                 put("numberOfSeasons", 0)
                 put("numberOfEpisodes", 0)
+            }
+            if (movie.mediaType == MediaType.TV) {
+                put("status", initialTvStatus)
             }
             put("watchedSeason", watchedSeason.coerceIn(0, 200))
             put("watchLog", listOf(cleanDate))
@@ -519,6 +524,18 @@ class WatchedMovieRepository(
         val docId = firestoreWatchedDocId(movieId, mediaType)
         val docRef = watchedCollection(uid).document(docId)
         return try {
+            if (mediaType == MediaType.TV) {
+                val seasonDocs = runCatching {
+                    docRef.collection("seasons").get().await().documents
+                }.getOrDefault(emptyList())
+                if (seasonDocs.isNotEmpty()) {
+                    seasonDocs.chunked(400).forEach { chunk ->
+                        val batch = db.batch()
+                        chunk.forEach { batch.delete(it.reference) }
+                        batch.commit().await()
+                    }
+                }
+            }
             docRef.delete().await()
             Result.success(Unit)
         } catch (e: CancellationException) {

@@ -83,6 +83,13 @@ data class WatchedMovie(
     val numberOfSeasons: Int = 0,
     val numberOfEpisodes: Int = 0,
     val watchedSeason: Int = 0,
+    val status: String = "",
+    val watchedEpisodesCount: Int = 0,
+    val watchedSeasonsCount: Int = 0,
+    val watchedRuntimeMinutes: Int = 0,
+    val nextUpSeason: Int = 0,
+    val nextUpEpisode: Int = 0,
+    val currentSeason: Int = 0,
     val watchLog: List<String> = emptyList(),
     @ServerTimestamp val watchedAt: Timestamp? = null,
     @ServerTimestamp val updatedAt: Timestamp? = null,
@@ -117,6 +124,56 @@ data class WatchedMovie(
 
     val watchCount: Int
         get() = resolvedWatchDates.size.coerceAtLeast(1)
+
+    val resolvedTvStatus: TvWatchStatus
+        get() {
+            if (!isTv) return TvWatchStatus.COMPLETED
+            return TvWatchStatus.fromKey(status) ?: when {
+                watchedEpisodesCount > 0 && numberOfEpisodes > 0 && watchedEpisodesCount < numberOfEpisodes ->
+                    TvWatchStatus.WATCHING
+                else -> TvWatchStatus.COMPLETED
+            }
+        }
+
+    fun formatTvProgressSummary(): String? {
+        if (!isTv) return null
+        val totalS = numberOfSeasons.coerceAtLeast(watchedSeasonsCount)
+        val totalE = numberOfEpisodes.coerceAtLeast(watchedEpisodesCount)
+        if (totalS <= 0 && totalE <= 0) return null
+        val curS = when {
+            currentSeason > 0 -> currentSeason
+            nextUpSeason > 0 -> nextUpSeason
+            watchedSeason > 0 -> watchedSeason
+            resolvedTvStatus == TvWatchStatus.COMPLETED && totalS > 0 -> totalS
+            else -> 1
+        }.coerceIn(1, totalS.coerceAtLeast(1))
+        val epsWatched = when {
+            watchedEpisodesCount > 0 -> watchedEpisodesCount
+            status.isBlank() && resolvedTvStatus == TvWatchStatus.COMPLETED && totalE > 0 -> totalE
+            else -> 0
+        }
+        return "S$curS of ${totalS.coerceAtLeast(1)} • Episodes $epsWatched / $totalE"
+    }
+
+    fun tvProgressFraction(): Float {
+        if (!isTv) return 0f
+        val totalE = numberOfEpisodes.coerceAtLeast(watchedEpisodesCount)
+        if (totalE <= 0) {
+            return if (resolvedTvStatus == TvWatchStatus.COMPLETED) 1f else 0f
+        }
+        val epsWatched = when {
+            watchedEpisodesCount > 0 -> watchedEpisodesCount
+            status.isBlank() && resolvedTvStatus == TvWatchStatus.COMPLETED -> totalE
+            else -> 0
+        }
+        return (epsWatched.toFloat() / totalE.toFloat()).coerceIn(0f, 1f)
+    }
+
+    fun formatNextUpLabel(): String? {
+        if (!isTv || resolvedTvStatus != TvWatchStatus.WATCHING) return null
+        if (nextUpSeason <= 0 || nextUpEpisode <= 0) return null
+        return "Next up: S$nextUpSeason E$nextUpEpisode"
+    }
 
     val needsMetadataBackfill: Boolean
         get() = runtime == 0 ||
@@ -273,6 +330,7 @@ data class UserSettings(
     val userId: String = "",
     val accentPreset: String = AccentPreset.RED.key,
     val accentHex: String = AccentPreset.RED.defaultHex,
+    val tvMigrationCompleted: Boolean = false,
     @ServerTimestamp val updatedAt: Timestamp? = null,
 )
 
@@ -302,6 +360,10 @@ data class MovieSummary(
 
     fun fullPosterUrl(): String? = posterPath?.takeIf { it.isNotBlank() }?.let {
         "https://image.tmdb.org/t/p/w500$it"
+    }
+
+    fun fullPosterThumbUrl(): String? = posterPath?.takeIf { it.isNotBlank() }?.let {
+        "https://image.tmdb.org/t/p/w342$it"
     }
 
     fun fullBackdropUrl(): String? = backdropPath?.takeIf { it.isNotBlank() }?.let {
@@ -412,6 +474,7 @@ data class MovieDetails(
     val tagline: String = "",
     val numberOfSeasons: Int = 0,
     val numberOfEpisodes: Int = 0,
+    val seasons: List<TvSeasonSummary> = emptyList(),
     val images: MediaImages = MediaImages(),
     val watchProvidersIN: WatchProvidersRegion? = null,
     val trailerVideo: MediaVideo? = null,

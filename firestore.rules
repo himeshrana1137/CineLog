@@ -52,6 +52,13 @@ service cloud.firestore {
              (!('numberOfSeasons' in data) || (data.numberOfSeasons is int && data.numberOfSeasons >= 0 && data.numberOfSeasons <= 200)) &&
              (!('numberOfEpisodes' in data) || (data.numberOfEpisodes is int && data.numberOfEpisodes >= 0 && data.numberOfEpisodes <= 50000)) &&
               (!('watchedSeason' in data) || (data.watchedSeason is int && data.watchedSeason >= 0 && data.watchedSeason <= 200)) &&
+              (!('status' in data) || data.status in ['', 'NOT_STARTED', 'WATCHING', 'COMPLETED']) &&
+              (!('watchedEpisodesCount' in data) || (data.watchedEpisodesCount is int && data.watchedEpisodesCount >= 0 && data.watchedEpisodesCount <= 50000)) &&
+              (!('watchedSeasonsCount' in data) || (data.watchedSeasonsCount is int && data.watchedSeasonsCount >= 0 && data.watchedSeasonsCount <= 200)) &&
+              (!('watchedRuntimeMinutes' in data) || (data.watchedRuntimeMinutes is int && data.watchedRuntimeMinutes >= 0 && data.watchedRuntimeMinutes <= 5000000)) &&
+              (!('nextUpSeason' in data) || (data.nextUpSeason is int && data.nextUpSeason >= 0 && data.nextUpSeason <= 200)) &&
+              (!('nextUpEpisode' in data) || (data.nextUpEpisode is int && data.nextUpEpisode >= 0 && data.nextUpEpisode <= 5000)) &&
+              (!('currentSeason' in data) || (data.currentSeason is int && data.currentSeason >= 0 && data.currentSeason <= 200)) &&
               (!('watchLog' in data) || (data.watchLog is list && data.watchLog.size() <= 500 && (data.watchLog.size() == 0 || data.watchLog[0] is string))) &&
               data.watchedAt is timestamp &&
               data.watchedAt <= request.time &&
@@ -111,6 +118,28 @@ service cloud.firestore {
              data.accentPreset in ['red', 'yellow', 'blue', 'purple', 'neon_green', 'custom'] &&
              data.accentHex is string &&
              data.accentHex.matches('^#[0-9A-Fa-f]{6}$') &&
+             (!('tvMigrationCompleted' in data) || data.tvMigrationCompleted is bool) &&
+             data.updatedAt is timestamp &&
+             data.updatedAt <= request.time;
+    }
+
+    function isValidWatchedSeason(data, userId) {
+      return data.userId is string &&
+             data.userId == userId &&
+             data.tvId is int &&
+             data.tvId > 0 &&
+             data.seasonNumber is int &&
+             data.seasonNumber >= 0 &&
+             data.seasonNumber <= 200 &&
+             data.episodeCount is int &&
+             data.episodeCount >= 0 &&
+             data.episodeCount <= 2000 &&
+             data.watched is bool &&
+             data.watchedEpisodes is list &&
+             data.watchedEpisodes.size() <= 2000 &&
+             (data.watchedEpisodes.size() == 0 || data.watchedEpisodes[0] is int) &&
+             (!('watchedRuntimeMinutes' in data) || (data.watchedRuntimeMinutes is int && data.watchedRuntimeMinutes >= 0 && data.watchedRuntimeMinutes <= 500000)) &&
+             (!('watchedAt' in data) || data.watchedAt == null || (data.watchedAt is timestamp && data.watchedAt <= request.time)) &&
              data.updatedAt is timestamp &&
              data.updatedAt <= request.time;
     }
@@ -127,6 +156,8 @@ service cloud.firestore {
                          'rating', 'userRating', 'note', 'reaction', 'originalLanguage',
                          'overview', 'genres', 'cast', 'directors',
                          'runtime', 'numberOfSeasons', 'numberOfEpisodes', 'watchedSeason',
+                         'status', 'watchedEpisodesCount', 'watchedSeasonsCount', 'watchedRuntimeMinutes',
+                         'nextUpSeason', 'nextUpEpisode', 'currentSeason',
                          'watchLog', 'watchedAt', 'updatedAt'
                        ]) &&
                        isValidWatchedMedia(incoming(), userId);
@@ -142,10 +173,17 @@ service cloud.firestore {
                          'userRating', 'note', 'reaction', 'originalLanguage',
                          'title', 'posterPath', 'releaseDate',
                          'rating', 'overview', 'genres', 'cast', 'directors', 'runtime',
-                         'numberOfSeasons', 'numberOfEpisodes', 'watchedSeason', 'watchLog', 'updatedAt'
+                         'numberOfSeasons', 'numberOfEpisodes', 'watchedSeason',
+                         'status', 'watchedEpisodesCount', 'watchedSeasonsCount', 'watchedRuntimeMinutes',
+                         'nextUpSeason', 'nextUpEpisode', 'currentSeason',
+                         'watchLog', 'updatedAt'
                        ]);
 
       allow delete: if isOwner(userId) && isValidId(watchedId);
+    }
+
+    match /users/{uid}/watched/{tvId}/seasons/{seasonId} {
+      allow read, write: if request.auth != null && request.auth.uid == uid;
     }
 
     match /users/{userId}/watchlist/{watchlistId} {
@@ -206,13 +244,13 @@ service cloud.firestore {
       allow create: if isOwner(userId) &&
                        settingId == 'preferences' &&
                        incoming().keys().hasAll(['userId', 'accentPreset', 'accentHex', 'updatedAt']) &&
-                       incoming().keys().hasOnly(['userId', 'accentPreset', 'accentHex', 'updatedAt']) &&
+                       incoming().keys().hasOnly(['userId', 'accentPreset', 'accentHex', 'tvMigrationCompleted', 'updatedAt']) &&
                        isValidUserSettings(incoming(), userId);
 
       allow update: if isOwner(userId) &&
                        settingId == 'preferences' &&
                        incoming().keys().hasAll(['userId', 'accentPreset', 'accentHex', 'updatedAt']) &&
-                       incoming().keys().hasOnly(['userId', 'accentPreset', 'accentHex', 'updatedAt']) &&
+                       incoming().keys().hasOnly(['userId', 'accentPreset', 'accentHex', 'tvMigrationCompleted', 'updatedAt']) &&
                        isValidUserSettings(incoming(), userId) &&
                        incoming().userId == existing().userId;
 

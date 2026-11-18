@@ -56,6 +56,7 @@ import androidx.compose.ui.unit.dp
 import com.example.data.model.AccentPreset
 import com.example.data.repository.LocalAccentPreference
 import com.example.ui.MigrationProgressState
+import com.example.ui.components.UserProfileAvatar
 import com.example.ui.theme.CineElevated
 import com.example.ui.theme.CineEmerald
 import com.example.ui.theme.CineGold
@@ -67,6 +68,7 @@ import com.example.ui.theme.parseHexColorOrDefault
 fun SettingsScreen(
     userName: String,
     userEmail: String?,
+    userPhotoUrl: String? = null,
     isOnline: Boolean,
     accentPreference: LocalAccentPreference,
     itemsMissingMetadataCount: Int,
@@ -91,7 +93,7 @@ fun SettingsScreen(
 
     LazyColumn(
         modifier = modifier.fillMaxSize(),
-        contentPadding = PaddingValues(16.dp),
+        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 96.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
         // 1. Custom Theme Accent Color Picker
@@ -436,17 +438,29 @@ fun SettingsScreen(
                         style = MaterialTheme.typography.labelLarge,
                         color = MaterialTheme.colorScheme.primary,
                     )
-                    Text(
-                        text = userName,
-                        style = MaterialTheme.typography.titleLarge,
-                        color = MaterialTheme.colorScheme.onSurface,
-                    )
-                    if (!userEmail.isNullOrBlank()) {
-                        Text(
-                            text = userEmail,
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    ) {
+                        UserProfileAvatar(
+                            userName = userName,
+                            userPhotoUrl = userPhotoUrl,
+                            size = 48.dp,
                         )
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = userName,
+                                style = MaterialTheme.typography.titleLarge,
+                                color = MaterialTheme.colorScheme.onSurface,
+                            )
+                            if (!userEmail.isNullOrBlank()) {
+                                Text(
+                                    text = userEmail,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                        }
                     }
                     Spacer(modifier = Modifier.height(4.dp))
                     OutlinedButton(

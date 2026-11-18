@@ -16,10 +16,12 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
-import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.PlaylistAdd
@@ -47,6 +49,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
@@ -123,14 +127,16 @@ fun WatchlistScreen(
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(horizontal = 16.dp, vertical = 8.dp),
+                            .padding(vertical = 8.dp),
                         verticalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
                         Surface(
                             color = MaterialTheme.colorScheme.surface,
                             shape = MaterialTheme.shapes.medium,
                             border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
-                            modifier = Modifier.fillMaxWidth(),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 16.dp),
                         ) {
                             Row(
                                 modifier = Modifier
@@ -170,22 +176,44 @@ fun WatchlistScreen(
                             }
                         }
 
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .horizontalScroll(rememberScrollState()),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        ) {
-                            DiscoverMediaFilter.entries.forEach { option ->
-                                FilterChip(
-                                    selected = filter == option,
-                                    onClick = { filter = option },
-                                    label = { Text(option.label) },
-                                    colors = FilterChipDefaults.filterChipColors(
-                                        selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
-                                        selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                                    ),
-                                    modifier = Modifier.testTag("watchlist_filter_${option.name.lowercase()}"),
+                        val filterRowState = rememberLazyListState()
+                        Box(modifier = Modifier.fillMaxWidth()) {
+                            LazyRow(
+                                state = filterRowState,
+                                contentPadding = PaddingValues(horizontal = 16.dp),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                modifier = Modifier.fillMaxWidth(),
+                            ) {
+                                items(DiscoverMediaFilter.entries, key = { it.name }) { option ->
+                                    FilterChip(
+                                        selected = filter == option,
+                                        onClick = { filter = option },
+                                        label = {
+                                            Text(
+                                                text = option.label,
+                                                maxLines = 1,
+                                                softWrap = false,
+                                            )
+                                        },
+                                        colors = FilterChipDefaults.filterChipColors(
+                                            selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
+                                            selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                                        ),
+                                        modifier = Modifier.testTag("watchlist_filter_${option.name.lowercase()}"),
+                                    )
+                                }
+                            }
+                            if (filterRowState.canScrollForward) {
+                                Box(
+                                    modifier = Modifier
+                                        .align(Alignment.CenterEnd)
+                                        .width(28.dp)
+                                        .height(40.dp)
+                                        .background(
+                                            Brush.horizontalGradient(
+                                                colors = listOf(Color.Transparent, MaterialTheme.colorScheme.background)
+                                            )
+                                        )
                                 )
                             }
                         }
@@ -203,7 +231,7 @@ fun WatchlistScreen(
                         val gridCols = if (columnsCount >= 3) 2 else 1
                         LazyVerticalGrid(
                             columns = GridCells.Fixed(gridCols),
-                            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 24.dp),
+                            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 96.dp),
                             horizontalArrangement = Arrangement.spacedBy(12.dp),
                             verticalArrangement = Arrangement.spacedBy(12.dp),
                             modifier = Modifier.fillMaxSize(),
