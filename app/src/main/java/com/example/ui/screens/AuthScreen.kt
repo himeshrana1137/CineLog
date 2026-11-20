@@ -138,6 +138,8 @@ private data class AuthFeatureSlide(
 @Composable
 fun AuthScreen(
     onAuthSuccess: () -> Unit,
+    initialMessage: String? = null,
+    onMessageConsumed: () -> Unit = {},
     tmdbRepository: TmdbRepository = remember { TmdbRepository() },
 ) {
     val context = LocalContext.current
@@ -148,6 +150,7 @@ fun AuthScreen(
     val snackbarHostState = remember { SnackbarHostState() }
 
     var isLoading by remember { mutableStateOf(false) }
+    var activeNotice by remember(initialMessage) { mutableStateOf(initialMessage) }
     var loginPosters by remember {
         mutableStateOf(
             tmdbRepository.peekMemoryCachedLoginPosters(
@@ -177,15 +180,24 @@ fun AuthScreen(
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
+    LaunchedEffect(initialMessage) {
+        if (!initialMessage.isNullOrBlank()) {
+            activeNotice = initialMessage
+            snackbarHostState.showSnackbar(initialMessage)
+        }
+    }
+
     LaunchedEffect(Unit) {
-        launch {
-            attemptAutoSignIn(
-                context = context,
-                credentialManager = credentialManager,
-                scope = scope,
-                onAuthSuccess = onAuthSuccess,
-                onUnauthenticated = { /* stay on AuthScreen */ },
-            )
+        if (initialMessage.isNullOrBlank()) {
+            launch {
+                attemptAutoSignIn(
+                    context = context,
+                    credentialManager = credentialManager,
+                    scope = scope,
+                    onAuthSuccess = onAuthSuccess,
+                    onUnauthenticated = { /* stay on AuthScreen */ },
+                )
+            }
         }
         launch {
             val urls = runCatching {
@@ -433,6 +445,30 @@ fun AuthScreen(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalAlignment = Alignment.CenterHorizontally,
                         ) {
+                            activeNotice?.takeIf { it.isNotBlank() }?.let { noticeText ->
+                                Surface(
+                                    color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.92f),
+                                    shape = RoundedCornerShape(14.dp),
+                                    border = BorderStroke(
+                                        1.dp,
+                                        MaterialTheme.colorScheme.error.copy(alpha = 0.65f),
+                                    ),
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(bottom = 12.dp)
+                                        .testTag("auth_notice_banner"),
+                                ) {
+                                    Text(
+                                        text = noticeText,
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = MaterialTheme.colorScheme.onErrorContainer,
+                                        textAlign = TextAlign.Center,
+                                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                                    )
+                                }
+                            }
+
                             val interactionSource = remember { MutableInteractionSource() }
                             val isPressed by interactionSource.collectIsPressedAsState()
                             val buttonScale by animateFloatAsState(
@@ -455,6 +491,8 @@ fun AuthScreen(
                                         scope = scope,
                                         onAuthSuccess = {
                                             isLoading = false
+                                            activeNotice = null
+                                            onMessageConsumed()
                                             onAuthSuccess()
                                         },
                                         onAuthError = { msg ->

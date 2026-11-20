@@ -273,6 +273,7 @@ class TvSeasonToggleViewModelTest : FirestoreEmulatorTestBase() {
             settingsRepository = settingsRepo,
             networkMonitor = networkMonitor,
             currentUserId = uid,
+            auth = auth,
         )
 
         // Actively subscribe to modalTvSeasons and watchedMap as Compose UI does

@@ -2,9 +2,13 @@ package com.example.data.repository
 
 import android.content.Context
 import android.content.SharedPreferences
+import android.util.Log
 import com.example.data.firebase.FirestoreProvider
+import com.example.data.firebase.FirestoreSnapshotState
 import com.example.data.firebase.OperationType
 import com.example.data.firebase.handleFirestoreError
+import com.example.data.firebase.observeAuthGatedFirestoreStream
+import com.example.data.firebase.verifyReadOnlyServerFetch
 import com.example.data.model.AccentPreset
 import com.example.data.model.UserSettings
 import com.google.firebase.Firebase
@@ -13,14 +17,20 @@ import com.google.firebase.auth.auth
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.FirebaseFirestoreException
+import com.google.firebase.firestore.MetadataChanges
 import com.google.firebase.firestore.SetOptions
+import com.google.firebase.firestore.Source
 import com.google.firebase.firestore.snapshots
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.emitAll
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.tasks.await
 
 data class LocalAccentPreference(
@@ -61,6 +71,50 @@ class UserSettingsRepository(
             ?.apply()
     }
 
+    private val _retryTrigger = MutableStateFlow(0)
+    val retryTrigger: StateFlow<Int> = _retryTrigger.asStateFlow()
+
+    fun triggerRetry() {
+        _retryTrigger.update { it + 1 }
+    }
+
+    fun loadLastSyncedAtMillis(): Long? {
+        val raw = prefs?.getLong(KEY_LAST_SYNCED_AT, -1L) ?: -1L
+        return raw.takeIf { it > 0L }
+    }
+
+    fun saveLastSyncedAtMillis(timestampMillis: Long) {
+        if (timestampMillis <= 0L) return
+        prefs?.edit()?.putLong(KEY_LAST_SYNCED_AT, timestampMillis)?.apply()
+    }
+
+    fun observeSettingsForAuthUser(): Flow<FirestoreSnapshotState<UserSettings?>> =
+        observeAuthGatedFirestoreStream(
+            auth = auth,
+            retryTrigger = retryTrigger,
+            streamName = "settings",
+            operationType = OperationType.GET,
+            pathForUser = { uid -> "users/$uid/settings/$PREFERENCES_DOC_ID" },
+            snapshotFlowForUser = { uid ->
+                settingsDoc(uid)
+                    .snapshots(MetadataChanges.INCLUDE)
+                    .map { snapshot ->
+                        val settings = snapshot.toObject(UserSettings::class.java)
+                        settings to snapshot.metadata.isFromCache
+                    }
+            },
+        )
+
+    suspend fun verifyServerAccess(userId: String): Result<Unit> =
+        verifyReadOnlyServerFetch(
+            streamName = "settings",
+            path = "users/$userId/settings/$PREFERENCES_DOC_ID",
+            operationType = OperationType.GET,
+            auth = auth,
+        ) {
+            settingsDoc(userId).get(Source.SERVER).await()
+        }
+
     fun observeSettings(userId: String): Flow<UserSettings?> = flow {
         val path = "users/$userId/settings/$PREFERENCES_DOC_ID"
         emitAll(
@@ -75,6 +129,11 @@ class UserSettingsRepository(
                         .firstOrNull()
                     if (firestoreError == null && error is CancellationException) throw error
                     val exceptionToLog = firestoreError ?: (error as? Exception)
+                    Log.e(
+                        TAG,
+                        "observeSettings error path=$path: ${(exceptionToLog ?: error)::class.java.name}: ${(exceptionToLog ?: error).message}",
+                        exceptionToLog ?: error,
+                    )
                     if (exceptionToLog != null && auth.currentUser?.uid == userId) {
                         handleFirestoreError(exceptionToLog, OperationType.GET, path, auth)
                     }
@@ -157,9 +216,11 @@ class UserSettingsRepository(
     }
 
     companion object {
+        private const val TAG = "UserSettingsRepo"
         private const val PREFS_NAME = "cinelog_user_preferences"
         private const val KEY_ACCENT_PRESET = "accent_preset"
         private const val KEY_ACCENT_HEX = "accent_hex"
+        private const val KEY_LAST_SYNCED_AT = "last_synced_at_millis"
         const val PREFERENCES_DOC_ID = "preferences"
 
         private val HEX_REGEX = Regex("^#[0-9A-Fa-f]{6}$")

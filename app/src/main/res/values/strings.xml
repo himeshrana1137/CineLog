@@ -49,4 +49,11 @@
     <string name="filter_five_stars">5★ Favorites</string>
     <string name="tmdb_key_banner_title">TMDB API Key Needed</string>
     <string name="tmdb_key_banner_body">Add TMDB_API_KEY in the AI Studio Secrets panel to enable live online movie search &amp; details.</string>
+    <string name="sync_error_title">Couldn\'t sync your library</string>
+    <string name="sync_error_subtitle">We couldn\'t reach your cloud library right now. Try syncing again in a moment.</string>
+    <string name="sync_now">Sync now</string>
+    <string name="syncing_now">Syncing…</string>
+    <string name="sync_details_toggle">Details</string>
+    <string name="sync_library_cd">Sync library</string>
+    <string name="please_sign_in_again">Please sign in again</string>
 </resources>

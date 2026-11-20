@@ -62,6 +62,9 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.minimumInteractiveComponentSize
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
+import androidx.compose.material3.pulltorefresh.PullToRefreshDefaults
+import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -91,6 +94,7 @@ import com.example.ui.WatchedSubTab
 import com.example.ui.WatchedUiState
 import com.example.ui.components.CineEmptyState
 import com.example.ui.components.LanguageFilterRow
+import com.example.ui.components.LibrarySyncErrorState
 import com.example.ui.components.MovieSkeletonCard
 import com.example.ui.components.TvStatusPill
 import com.example.ui.theme.CineCharcoal
@@ -133,6 +137,8 @@ fun WatchedScreen(
     onShareCardClick: (WatchedMovie) -> Unit,
     onRemoveClick: (WatchedMovie) -> Unit,
     onExploreClick: () -> Unit,
+    isSyncing: Boolean = false,
+    onSyncNow: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     var showFiltersSheet by remember { mutableStateOf(false) }
@@ -148,8 +154,25 @@ fun WatchedScreen(
 
     val navBarBottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
     val listBottomPadding = 84.dp + navBarBottom
+    val pullToRefreshState = rememberPullToRefreshState()
 
-    Box(modifier = modifier.fillMaxSize()) {
+    PullToRefreshBox(
+        isRefreshing = isSyncing,
+        onRefresh = onSyncNow,
+        state = pullToRefreshState,
+        indicator = {
+            PullToRefreshDefaults.Indicator(
+                state = pullToRefreshState,
+                isRefreshing = isSyncing,
+                containerColor = CineElevated,
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.align(Alignment.TopCenter),
+            )
+        },
+        modifier = modifier
+            .fillMaxSize()
+            .testTag("watched_pull_to_refresh"),
+    ) {
         when (watchedState) {
             is WatchedUiState.Loading -> {
                 LazyVerticalGrid(
@@ -171,11 +194,19 @@ fun WatchedScreen(
             }
 
             is WatchedUiState.Error -> {
-                CineEmptyState(
-                    title = "Unable to sync your library",
-                    subtitle = watchedState.message,
-                    modifier = Modifier.fillMaxSize(),
-                )
+                Box(
+                    contentAlignment = Alignment.Center,
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .verticalScroll(rememberScrollState())
+                        .padding(bottom = listBottomPadding),
+                ) {
+                    LibrarySyncErrorState(
+                        technicalDetails = watchedState.message,
+                        isSyncing = isSyncing,
+                        onSyncNow = onSyncNow,
+                    )
+                }
             }
 
             is WatchedUiState.Success -> {

@@ -59,6 +59,8 @@ import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material.icons.rounded.Star
 import androidx.compose.material.icons.rounded.StarBorder
+import androidx.compose.material.icons.rounded.Sync
+import androidx.compose.material.icons.rounded.SyncProblem
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -73,6 +75,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.PlainTooltip
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TooltipBox
 import androidx.compose.material3.TooltipDefaults
 import androidx.compose.material3.TopAppBar
@@ -102,6 +105,7 @@ import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
@@ -125,6 +129,10 @@ import com.example.ui.theme.CineEmeraldContainer
 import com.example.ui.theme.CineGold
 import com.example.ui.theme.CineObsidian
 import com.example.ui.theme.CineSurfaceHigh
+import java.text.DateFormat
+import java.text.SimpleDateFormat
+import java.util.Calendar
+import java.util.Date
 import java.util.Locale
 
 @Composable
@@ -178,6 +186,8 @@ fun CineTopNavbar(
     searchPlaceholder: String,
     searchTestTag: String,
     hasActiveSearchQuery: Boolean = searchQuery.isNotBlank(),
+    isSyncing: Boolean = false,
+    onSyncClick: (() -> Unit)? = null,
     scrollBehavior: TopAppBarScrollBehavior? = null,
     onSearchIconClick: () -> Unit,
     onCollapseSearch: () -> Unit,
@@ -312,6 +322,30 @@ fun CineTopNavbar(
         },
         actions = {
             if (!isSearchExpanded) {
+                if (onSyncClick != null) {
+                    IconButton(
+                        onClick = onSyncClick,
+                        enabled = !isSyncing,
+                        modifier = Modifier
+                            .minimumInteractiveComponentSize()
+                            .testTag("top_sync_button"),
+                    ) {
+                        if (isSyncing) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(18.dp),
+                                strokeWidth = 2.dp,
+                                color = MaterialTheme.colorScheme.primary,
+                            )
+                        } else {
+                            Icon(
+                                imageVector = Icons.Rounded.Sync,
+                                contentDescription = stringResource(R.string.sync_library_cd),
+                                tint = MaterialTheme.colorScheme.onBackground,
+                            )
+                        }
+                    }
+                }
+
                 IconButton(
                     onClick = onSearchIconClick,
                     modifier = Modifier
@@ -1308,4 +1342,171 @@ fun CineEmptyState(
             }
         }
     }
+}
+
+@Composable
+fun LibrarySyncErrorState(
+    technicalDetails: String,
+    isSyncing: Boolean,
+    onSyncNow: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    var detailsExpanded by remember { mutableStateOf(false) }
+
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(horizontal = 20.dp, vertical = 28.dp)
+            .testTag("library_sync_error_state"),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center,
+    ) {
+        Surface(
+            color = CineElevated,
+            shape = CircleShape,
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.45f)),
+            modifier = Modifier.size(68.dp),
+        ) {
+            Box(contentAlignment = Alignment.Center) {
+                Icon(
+                    imageVector = Icons.Rounded.SyncProblem,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(32.dp),
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        Text(
+            text = stringResource(R.string.sync_error_title),
+            style = MaterialTheme.typography.headlineSmall,
+            fontWeight = FontWeight.Bold,
+            color = MaterialTheme.colorScheme.onBackground,
+            textAlign = TextAlign.Center,
+            modifier = Modifier.widthIn(max = 320.dp),
+        )
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        Text(
+            text = stringResource(R.string.sync_error_subtitle),
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            textAlign = TextAlign.Center,
+            modifier = Modifier.widthIn(max = 320.dp),
+        )
+
+        Spacer(modifier = Modifier.height(20.dp))
+
+        Button(
+            onClick = onSyncNow,
+            enabled = !isSyncing,
+            shape = RoundedCornerShape(12.dp),
+            contentPadding = PaddingValues(horizontal = 20.dp, vertical = 12.dp),
+            modifier = Modifier
+                .widthIn(min = 180.dp, max = 320.dp)
+                .heightIn(min = 48.dp)
+                .testTag("sync_now_button"),
+        ) {
+            if (isSyncing) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(18.dp),
+                    strokeWidth = 2.dp,
+                    color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.85f),
+                )
+                Spacer(modifier = Modifier.width(10.dp))
+                Text(
+                    text = stringResource(R.string.syncing_now),
+                    style = MaterialTheme.typography.labelLarge,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                    softWrap = false,
+                )
+            } else {
+                Icon(
+                    imageVector = Icons.Rounded.Sync,
+                    contentDescription = null,
+                    modifier = Modifier.size(18.dp),
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = stringResource(R.string.sync_now),
+                    style = MaterialTheme.typography.labelLarge,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                    softWrap = false,
+                )
+            }
+        }
+
+        if (technicalDetails.isNotBlank()) {
+            Spacer(modifier = Modifier.height(10.dp))
+
+            TextButton(
+                onClick = { detailsExpanded = !detailsExpanded },
+                modifier = Modifier
+                    .heightIn(min = 48.dp)
+                    .testTag("sync_error_details_toggle"),
+            ) {
+                Text(
+                    text = stringResource(R.string.sync_details_toggle),
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    softWrap = false,
+                )
+                Spacer(modifier = Modifier.width(4.dp))
+                Icon(
+                    imageVector = if (detailsExpanded) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore,
+                    contentDescription = if (detailsExpanded) "Hide error details" else "Show error details",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(18.dp),
+                )
+            }
+
+            AnimatedVisibility(
+                visible = detailsExpanded,
+                enter = expandVertically(),
+                exit = shrinkVertically(),
+            ) {
+                Surface(
+                    color = CineElevated,
+                    shape = RoundedCornerShape(12.dp),
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .widthIn(max = 360.dp)
+                        .padding(top = 6.dp)
+                        .testTag("sync_error_details_box"),
+                ) {
+                    Text(
+                        text = technicalDetails,
+                        style = MaterialTheme.typography.bodySmall.copy(
+                            fontFamily = FontFamily.Monospace,
+                        ),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(12.dp),
+                    )
+                }
+            }
+        }
+    }
+}
+
+fun formatLastSyncedLabel(lastSyncedAtMillis: Long?): String {
+    if (lastSyncedAtMillis == null || lastSyncedAtMillis <= 0L) {
+        return "Last synced: Not yet"
+    }
+    val syncedCal = Calendar.getInstance().apply { timeInMillis = lastSyncedAtMillis }
+    val nowCal = Calendar.getInstance()
+    val sameDay = syncedCal.get(Calendar.YEAR) == nowCal.get(Calendar.YEAR) &&
+        syncedCal.get(Calendar.DAY_OF_YEAR) == nowCal.get(Calendar.DAY_OF_YEAR)
+    val formatted = if (sameDay) {
+        DateFormat.getTimeInstance(DateFormat.SHORT, Locale.getDefault()).format(Date(lastSyncedAtMillis))
+    } else {
+        SimpleDateFormat("MMM d, h:mm a", Locale.getDefault()).format(Date(lastSyncedAtMillis))
+    }
+    return "Last synced: $formatted"
 }

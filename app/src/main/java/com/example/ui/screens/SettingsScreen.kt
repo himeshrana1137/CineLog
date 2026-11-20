@@ -33,8 +33,10 @@ import androidx.compose.material.icons.rounded.CloudDone
 import androidx.compose.material.icons.rounded.CloudOff
 import androidx.compose.material.icons.rounded.ImportExport
 import androidx.compose.material.icons.rounded.Palette
+import androidx.compose.material.icons.rounded.Sync
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
@@ -54,12 +56,15 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.example.R
 import com.example.data.model.AccentPreset
 import com.example.data.repository.LocalAccentPreference
 import com.example.ui.MigrationProgressState
 import com.example.ui.components.UserProfileAvatar
+import com.example.ui.components.formatLastSyncedLabel
 import com.example.ui.theme.CineElevated
 import com.example.ui.theme.CineEmerald
 import com.example.ui.theme.CineGold
@@ -82,6 +87,9 @@ fun SettingsScreen(
     onOpenImportExport: () -> Unit,
     onClearImageCache: () -> Unit,
     onLogout: () -> Unit,
+    isSyncing: Boolean = false,
+    lastSyncedAtMillis: Long? = null,
+    onSyncNow: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     var customHexInput by remember(accentPreference.hex) {
@@ -400,10 +408,56 @@ fun SettingsScreen(
                         )
                     }
                     Text(
+                        text = formatLastSyncedLabel(lastSyncedAtMillis),
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        fontWeight = FontWeight.SemiBold,
+                        modifier = Modifier.testTag("settings_last_synced_text"),
+                    )
+
+                    Text(
                         text = "Firestore local persistence and viewed poster caching are active so your Watched list, Watchlist, notes, and ratings load without internet.",
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
+
+                    Button(
+                        onClick = onSyncNow,
+                        enabled = !isSyncing,
+                        shape = RoundedCornerShape(10.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(48.dp)
+                            .testTag("settings_sync_now_button"),
+                    ) {
+                        if (isSyncing) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(18.dp),
+                                strokeWidth = 2.dp,
+                                color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.85f),
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = stringResource(R.string.syncing_now),
+                                fontWeight = FontWeight.Bold,
+                                maxLines = 1,
+                                softWrap = false,
+                            )
+                        } else {
+                            Icon(
+                                imageVector = Icons.Rounded.Sync,
+                                contentDescription = null,
+                                modifier = Modifier.size(18.dp),
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = stringResource(R.string.sync_now),
+                                fontWeight = FontWeight.Bold,
+                                maxLines = 1,
+                                softWrap = false,
+                            )
+                        }
+                    }
 
                     OutlinedButton(
                         onClick = onClearImageCache,

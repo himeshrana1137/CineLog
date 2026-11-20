@@ -76,6 +76,7 @@ import com.example.data.model.MovieSummary
 import com.example.ui.CustomListsUiState
 import com.example.ui.ListsSubTab
 import com.example.ui.components.CineEmptyState
+import com.example.ui.components.LibrarySyncErrorState
 import com.example.ui.theme.CineCharcoal
 import com.example.ui.theme.CineElevated
 import com.example.ui.theme.CineGold
@@ -94,6 +95,8 @@ fun CustomListsTabContent(
     onRenameList: (list: CustomList, newName: String, newDesc: String) -> Unit,
     onDeleteList: (CustomList) -> Unit,
     onOpenListDetails: (CustomList) -> Unit,
+    isSyncing: Boolean = false,
+    onSyncNow: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     var showCreateDialog by remember { mutableStateOf(false) }
@@ -197,12 +200,13 @@ fun CustomListsTabContent(
                     }
                     item { headerRow() }
                     item {
-                        CineEmptyState(
-                            title = "Couldn't load lists",
-                            subtitle = customListsState.message,
+                        LibrarySyncErrorState(
+                            technicalDetails = customListsState.message,
+                            isSyncing = isSyncing,
+                            onSyncNow = onSyncNow,
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(top = 24.dp),
+                                .padding(top = 12.dp),
                         )
                     }
                 }

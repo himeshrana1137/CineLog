@@ -1,9 +1,13 @@
 package com.example.data.repository
 
 import android.content.Context
+import android.util.Log
 import com.example.data.firebase.FirestoreProvider
+import com.example.data.firebase.FirestoreSnapshotState
 import com.example.data.firebase.OperationType
 import com.example.data.firebase.handleFirestoreError
+import com.example.data.firebase.observeAuthGatedFirestoreStream
+import com.example.data.firebase.verifyReadOnlyServerFetch
 import com.example.data.model.MediaType
 import com.example.data.model.MovieDetails
 import com.example.data.model.MovieSummary
@@ -16,13 +20,19 @@ import com.google.firebase.firestore.DocumentSnapshot
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.FirebaseFirestoreException
+import com.google.firebase.firestore.MetadataChanges
+import com.google.firebase.firestore.Source
 import com.google.firebase.firestore.snapshots
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.emitAll
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.tasks.await
 import java.util.Locale
 
@@ -41,6 +51,43 @@ class WatchlistRepository(
     private fun watchlistCollection(uid: String) =
         db.collection("users").document(uid).collection("watchlist")
 
+    private val _retryTrigger = MutableStateFlow(0)
+    val retryTrigger: StateFlow<Int> = _retryTrigger.asStateFlow()
+
+    fun triggerRetry() {
+        _retryTrigger.update { it + 1 }
+    }
+
+    fun observeWatchlistForAuthUser(): Flow<FirestoreSnapshotState<List<WatchlistItem>>> =
+        observeAuthGatedFirestoreStream(
+            auth = auth,
+            retryTrigger = retryTrigger,
+            streamName = "watchlist",
+            operationType = OperationType.LIST,
+            pathForUser = { uid -> "users/$uid/watchlist" },
+            snapshotFlowForUser = { uid ->
+                watchlistCollection(uid)
+                    .snapshots(MetadataChanges.INCLUDE)
+                    .map { snapshot ->
+                        val items = snapshot.toObjects(
+                            WatchlistItem::class.java,
+                            DocumentSnapshot.ServerTimestampBehavior.ESTIMATE
+                        )
+                        items to snapshot.metadata.isFromCache
+                    }
+            },
+        )
+
+    suspend fun verifyServerAccess(userId: String): Result<Unit> =
+        verifyReadOnlyServerFetch(
+            streamName = "watchlist",
+            path = "users/$userId/watchlist",
+            operationType = OperationType.LIST,
+            auth = auth,
+        ) {
+            watchlistCollection(userId).limit(1).get(Source.SERVER).await()
+        }
+
     fun observeWatchlist(userId: String): Flow<List<WatchlistItem>> = flow {
         val path = "users/$userId/watchlist"
         emitAll(
@@ -58,6 +105,11 @@ class WatchlistRepository(
                         .firstOrNull()
                     if (firestoreError == null && error is CancellationException) throw error
                     val exceptionToLog = firestoreError ?: (error as? Exception)
+                    Log.e(
+                        TAG,
+                        "observeWatchlist error path=$path: ${(exceptionToLog ?: error)::class.java.name}: ${(exceptionToLog ?: error).message}",
+                        exceptionToLog ?: error,
+                    )
                     if (exceptionToLog != null && auth.currentUser?.uid == userId) {
                         handleFirestoreError(exceptionToLog, OperationType.LIST, path, auth)
                     }
@@ -164,5 +216,9 @@ class WatchlistRepository(
             handleFirestoreError(e, OperationType.DELETE, docRef.path, auth)
             Result.failure(e)
         }
+    }
+
+    companion object {
+        private const val TAG = "WatchlistRepo"
     }
 }

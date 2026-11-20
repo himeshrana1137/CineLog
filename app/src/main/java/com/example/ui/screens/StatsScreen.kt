@@ -23,8 +23,10 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.AutoFixHigh
 import androidx.compose.material.icons.rounded.ChevronRight
@@ -35,6 +37,7 @@ import androidx.compose.material.icons.rounded.Schedule
 import androidx.compose.material.icons.rounded.Star
 import androidx.compose.material.icons.rounded.Videocam
 import androidx.compose.material3.Button
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
@@ -70,8 +73,10 @@ import com.example.data.model.CineStatsSummary
 import com.example.data.model.PersonStat
 import com.example.data.model.StatsMediaFilter
 import com.example.data.model.WatchedMovie
+import com.example.ui.WatchedUiState
 import com.example.ui.components.CineEmptyState
 import com.example.ui.components.GenreAnalyticsSection
+import com.example.ui.components.LibrarySyncErrorState
 import com.example.ui.theme.CineCharcoal
 import com.example.ui.theme.CineElevated
 import com.example.ui.theme.CineGold
@@ -95,8 +100,41 @@ fun StatsScreen(
     onPersonClick: (roleLabel: String, stat: PersonStat) -> Unit,
     onRunMigrationClick: () -> Unit,
     onExploreClick: () -> Unit,
+    watchedState: WatchedUiState = WatchedUiState.Success(emptyList()),
+    isSyncing: Boolean = false,
+    onSyncNow: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
+    val navBarBottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+    val listBottomPadding = 84.dp + navBarBottom
+
+    if (watchedState is WatchedUiState.Error) {
+        Box(
+            contentAlignment = Alignment.Center,
+            modifier = modifier
+                .fillMaxSize()
+                .verticalScroll(rememberScrollState())
+                .padding(bottom = listBottomPadding),
+        ) {
+            LibrarySyncErrorState(
+                technicalDetails = watchedState.message,
+                isSyncing = isSyncing,
+                onSyncNow = onSyncNow,
+            )
+        }
+        return
+    }
+
+    if (watchedState is WatchedUiState.Loading) {
+        Box(
+            contentAlignment = Alignment.Center,
+            modifier = modifier.fillMaxSize(),
+        ) {
+            CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
+        }
+        return
+    }
+
     if (totalAllWatchedCount == 0) {
         CineEmptyState(
             title = "No stats yet",
@@ -110,8 +148,6 @@ fun StatsScreen(
 
     var peopleTab by remember { mutableStateOf(PeopleStatTab.ACTORS) }
     val numFormat = remember { NumberFormat.getIntegerInstance(Locale.US) }
-    val navBarBottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
-    val listBottomPadding = 84.dp + navBarBottom
 
     LazyColumn(
         modifier = modifier.fillMaxSize(),

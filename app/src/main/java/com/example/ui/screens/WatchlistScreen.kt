@@ -68,6 +68,7 @@ import com.example.ui.DiscoverMediaFilter
 import com.example.ui.ListsSubTab
 import com.example.ui.WatchlistUiState
 import com.example.ui.components.CineEmptyState
+import com.example.ui.components.LibrarySyncErrorState
 import com.example.ui.components.MovieSkeletonCard
 import com.example.ui.theme.CineElevated
 import com.example.ui.theme.CineGold
@@ -146,6 +147,8 @@ fun WatchlistScreen(
     onSurpriseMeClick: () -> Unit,
     onRemoveClick: (WatchlistItem) -> Unit,
     onExploreClick: () -> Unit,
+    isSyncing: Boolean = false,
+    onSyncNow: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     var filter by remember { mutableStateOf(DiscoverMediaFilter.ALL) }
@@ -199,12 +202,13 @@ fun WatchlistScreen(
                         )
                     }
                     item {
-                        CineEmptyState(
-                            title = "Unable to load Watchlist",
-                            subtitle = watchlistState.message,
+                        LibrarySyncErrorState(
+                            technicalDetails = watchlistState.message,
+                            isSyncing = isSyncing,
+                            onSyncNow = onSyncNow,
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(top = 24.dp),
+                                .padding(top = 12.dp),
                         )
                     }
                 }

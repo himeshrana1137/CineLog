@@ -1,9 +1,13 @@
 package com.example.data.repository
 
 import android.content.Context
+import android.util.Log
 import com.example.data.firebase.FirestoreProvider
+import com.example.data.firebase.FirestoreSnapshotState
 import com.example.data.firebase.OperationType
 import com.example.data.firebase.handleFirestoreError
+import com.example.data.firebase.observeAuthGatedFirestoreStream
+import com.example.data.firebase.verifyReadOnlyServerFetch
 import com.example.data.model.MediaType
 import com.example.data.model.MovieDetails
 import com.example.data.model.MovieSummary
@@ -19,13 +23,19 @@ import com.google.firebase.firestore.DocumentSnapshot
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.FirebaseFirestoreException
+import com.google.firebase.firestore.MetadataChanges
+import com.google.firebase.firestore.Source
 import com.google.firebase.firestore.snapshots
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.emitAll
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.tasks.await
 import java.util.Locale
 
@@ -53,6 +63,43 @@ class WatchedMovieRepository(
     private fun watchedCollection(uid: String) =
         db.collection("users").document(uid).collection("watched")
 
+    private val _retryTrigger = MutableStateFlow(0)
+    val retryTrigger: StateFlow<Int> = _retryTrigger.asStateFlow()
+
+    fun triggerRetry() {
+        _retryTrigger.update { it + 1 }
+    }
+
+    fun observeWatchedMoviesForAuthUser(): Flow<FirestoreSnapshotState<List<WatchedMovie>>> =
+        observeAuthGatedFirestoreStream(
+            auth = auth,
+            retryTrigger = retryTrigger,
+            streamName = "watched",
+            operationType = OperationType.LIST,
+            pathForUser = { uid -> "users/$uid/watched" },
+            snapshotFlowForUser = { uid ->
+                watchedCollection(uid)
+                    .snapshots(MetadataChanges.INCLUDE)
+                    .map { snapshot ->
+                        val items = snapshot.toObjects(
+                            WatchedMovie::class.java,
+                            DocumentSnapshot.ServerTimestampBehavior.ESTIMATE
+                        )
+                        items to snapshot.metadata.isFromCache
+                    }
+            },
+        )
+
+    suspend fun verifyServerAccess(userId: String): Result<Unit> =
+        verifyReadOnlyServerFetch(
+            streamName = "watched",
+            path = "users/$userId/watched",
+            operationType = OperationType.LIST,
+            auth = auth,
+        ) {
+            watchedCollection(userId).limit(1).get(Source.SERVER).await()
+        }
+
     fun observeWatchedMovies(userId: String): Flow<List<WatchedMovie>> = flow {
         val path = "users/$userId/watched"
         emitAll(
@@ -70,6 +117,11 @@ class WatchedMovieRepository(
                         .firstOrNull()
                     if (firestoreError == null && error is CancellationException) throw error
                     val exceptionToLog = firestoreError ?: (error as? Exception)
+                    Log.e(
+                        TAG,
+                        "observeWatchedMovies error path=$path: ${(exceptionToLog ?: error)::class.java.name}: ${(exceptionToLog ?: error).message}",
+                        exceptionToLog ?: error,
+                    )
                     if (exceptionToLog != null && auth.currentUser?.uid == userId) {
                         handleFirestoreError(exceptionToLog, OperationType.LIST, path, auth)
                     }
@@ -547,6 +599,7 @@ class WatchedMovieRepository(
     }
 
     companion object {
+        private const val TAG = "WatchedMovieRepo"
         private val ISO_DATE_REGEX = Regex("^\\d{4}-\\d{2}-\\d{2}$")
 
         fun sanitizeIsoDate(raw: String?): String? {

@@ -105,7 +105,10 @@ import com.example.ui.components.formatGoogleProfilePhotoUrl
 import com.example.ui.theme.CineCharcoal
 import com.example.ui.theme.CineElevated
 import com.example.util.NetworkMonitor
+import com.google.firebase.Firebase
+import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.FirebaseUser
+import com.google.firebase.auth.auth
 
 private data class NavTabMeta(
     val tab: AppTab,
@@ -152,6 +155,9 @@ private val NAV_TABS = listOf(
 fun MainCinemaScreen(
     currentUser: FirebaseUser,
     onAccentHexChanged: (String) -> Unit,
+    auth: FirebaseAuth = Firebase.auth,
+    onRequireReAuth: (String) -> Unit = {},
+    onExplicitLogout: () -> Unit = {},
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -165,15 +171,17 @@ fun MainCinemaScreen(
                     "APPLICATION_KEY missing from CreationExtras"
                 }
                 val db = FirestoreProvider.getInstance(app)
+                val settingsPrefs = app.getSharedPreferences("cinelog_user_preferences", android.content.Context.MODE_PRIVATE)
                 CineLogViewModel(
                     tmdbRepository = TmdbRepository(),
-                    watchedRepository = WatchedMovieRepository(db),
-                    tvProgressRepository = TvProgressRepository(db),
-                    watchlistRepository = WatchlistRepository(db),
-                    customListRepository = CustomListRepository(db),
-                    settingsRepository = UserSettingsRepository(app),
+                    watchedRepository = WatchedMovieRepository(db, auth),
+                    tvProgressRepository = TvProgressRepository(db, auth),
+                    watchlistRepository = WatchlistRepository(db, auth),
+                    customListRepository = CustomListRepository(db, auth),
+                    settingsRepository = UserSettingsRepository(db = db, auth = auth, prefs = settingsPrefs),
                     networkMonitor = NetworkMonitor(app),
                     currentUserId = currentUser.uid,
+                    auth = auth,
                 )
             }
         }
@@ -228,6 +236,8 @@ fun MainCinemaScreen(
     val socialCardMovie by viewModel.socialCardMovie.collectAsStateWithLifecycle()
     val wallpaperEditorImage by viewModel.wallpaperEditorImage.collectAsStateWithLifecycle()
     val selectedPersonStat by viewModel.selectedPersonStat.collectAsStateWithLifecycle()
+    val isSyncingLibrary by viewModel.isSyncingLibrary.collectAsStateWithLifecycle()
+    val lastSyncedAtMillis by viewModel.lastSyncedAtMillis.collectAsStateWithLifecycle()
 
     LaunchedEffect(accentPreference.hex) {
         onAccentHexChanged(accentPreference.hex)
@@ -248,6 +258,12 @@ fun MainCinemaScreen(
                     event.onAction?.invoke()
                 }
             }
+        }
+    }
+
+    LaunchedEffect(viewModel) {
+        viewModel.reAuthRequiredEvents.collect { message ->
+            onRequireReAuth(message)
         }
     }
 
@@ -356,6 +372,8 @@ fun MainCinemaScreen(
                             searchPlaceholder = activeSearchPlaceholder,
                             searchTestTag = activeSearchTestTag,
                             hasActiveSearchQuery = activeTopSearchQuery.isNotBlank(),
+                            isSyncing = isSyncingLibrary,
+                            onSyncClick = viewModel::syncNow,
                             scrollBehavior = topBarScrollBehavior,
                             onSearchIconClick = {
                                 if (selectedTab != AppTab.DISCOVER && selectedTab != AppTab.WATCHED) {
@@ -385,6 +403,7 @@ fun MainCinemaScreen(
                             },
                             onOpenSettings = { viewModel.selectTab(AppTab.SETTINGS) },
                             onLogoutClick = {
+                                onExplicitLogout()
                                 signOutUser(
                                     credentialManager = credentialManager,
                                     scope = scope,
@@ -543,6 +562,8 @@ fun MainCinemaScreen(
                                     )
                                 },
                                 onExploreClick = { viewModel.selectTab(AppTab.DISCOVER) },
+                                isSyncing = isSyncingLibrary,
+                                onSyncNow = viewModel::syncNow,
                             )
                         }
 
@@ -565,6 +586,8 @@ fun MainCinemaScreen(
                                         onSurpriseMeClick = viewModel::openSurpriseMe,
                                         onRemoveClick = viewModel::removeFromWatchlist,
                                         onExploreClick = { viewModel.selectTab(AppTab.DISCOVER) },
+                                        isSyncing = isSyncingLibrary,
+                                        onSyncNow = viewModel::syncNow,
                                     )
                                 }
 
@@ -590,6 +613,8 @@ fun MainCinemaScreen(
                                         onOpenListDetails = { list ->
                                             viewModel.openCustomListDetails(list.id)
                                         },
+                                        isSyncing = isSyncingLibrary,
+                                        onSyncNow = viewModel::syncNow,
                                     )
                                 }
                             }
@@ -605,6 +630,9 @@ fun MainCinemaScreen(
                                 onPersonClick = viewModel::openPersonDetails,
                                 onRunMigrationClick = viewModel::runOldDataMigration,
                                 onExploreClick = { viewModel.selectTab(AppTab.DISCOVER) },
+                                watchedState = watchedState,
+                                isSyncing = isSyncingLibrary,
+                                onSyncNow = viewModel::syncNow,
                             )
                         }
 
@@ -627,11 +655,15 @@ fun MainCinemaScreen(
                                     viewModel.notifyMessage("Cleared cached poster images.")
                                 },
                                 onLogout = {
+                                    onExplicitLogout()
                                     signOutUser(
                                         credentialManager = credentialManager,
                                         scope = scope,
                                     )
                                 },
+                                isSyncing = isSyncingLibrary,
+                                lastSyncedAtMillis = lastSyncedAtMillis,
+                                onSyncNow = viewModel::syncNow,
                             )
                         }
                     }

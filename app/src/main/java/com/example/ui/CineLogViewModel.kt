@@ -3,6 +3,10 @@ package com.example.ui
 import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.data.firebase.FirestoreSnapshotState
+import com.example.data.firebase.REAUTH_REQUIRED_MESSAGE
+import com.example.data.firebase.formatTechnicalFirestoreError
+import com.example.data.firebase.isAuthSessionInvalidError
 import com.example.data.model.AccentPreset
 import com.example.data.model.CineStatsSummary
 import com.example.data.model.CustomList
@@ -39,7 +43,11 @@ import com.example.util.ImportCandidateRow
 import com.example.util.ImportExportHelper
 import com.example.util.ImportSourceFormat
 import com.example.util.NetworkMonitor
+import com.google.firebase.Firebase
 import com.google.firebase.Timestamp
+import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.auth.FirebaseUser
+import com.google.firebase.auth.auth
 import com.google.firebase.firestore.FirebaseFirestoreException
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -61,13 +69,17 @@ import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.tasks.await
 import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Locale
+import java.util.concurrent.atomic.AtomicInteger
 
 enum class AppTab {
     DISCOVER,
@@ -223,7 +235,27 @@ class CineLogViewModel(
     private val settingsRepository: UserSettingsRepository,
     private val networkMonitor: NetworkMonitor,
     private val currentUserId: String,
+    private val auth: FirebaseAuth = Firebase.auth,
+    private val tokenRefresher: suspend (FirebaseUser) -> Unit = { user ->
+        user.getIdToken(true).await()
+    },
 ) : ViewModel() {
+
+    private class StreamRetryTracker {
+        var activeUid: String? = null
+        var autoRetryUsedForSession: Boolean = false
+        var inFlightRetry: Boolean = false
+        var lastHandledErrorRetryCount: Int = -1
+        var lastNotifiedErrorKey: String? = null
+
+        fun resetForUid(uid: String?) {
+            activeUid = uid
+            autoRetryUsedForSession = false
+            inFlightRetry = false
+            lastHandledErrorRetryCount = -1
+            lastNotifiedErrorKey = null
+        }
+    }
 
     private val _selectedTab = MutableStateFlow(AppTab.DISCOVER)
     val selectedTab: StateFlow<AppTab> = _selectedTab.asStateFlow()
@@ -338,6 +370,383 @@ class CineLogViewModel(
     private val _snackbarEvents = MutableSharedFlow<CineSnackbarEvent>(extraBufferCapacity = 16)
     val snackbarEvents: SharedFlow<CineSnackbarEvent> = _snackbarEvents.asSharedFlow()
 
+    private val _reAuthRequiredEvents = MutableSharedFlow<String>(extraBufferCapacity = 4)
+    val reAuthRequiredEvents: SharedFlow<String> = _reAuthRequiredEvents.asSharedFlow()
+
+    private val activeSyncOpsCount = AtomicInteger(0)
+    private val _isSyncingLibrary = MutableStateFlow(false)
+    val isSyncingLibrary: StateFlow<Boolean> = _isSyncingLibrary.asStateFlow()
+
+    private val _lastSyncedAtMillis = MutableStateFlow(settingsRepository.loadLastSyncedAtMillis())
+    val lastSyncedAtMillis: StateFlow<Long?> = _lastSyncedAtMillis.asStateFlow()
+
+    // Per-stream retry trackers & server-verification failure overrides (prevents endless loops)
+    private val watchedRetryTracker = StreamRetryTracker()
+    private val watchlistRetryTracker = StreamRetryTracker()
+    private val customListsRetryTracker = StreamRetryTracker()
+    private val seasonsRetryTracker = StreamRetryTracker()
+    private val settingsRetryTracker = StreamRetryTracker()
+
+    private val _watchedRetryFailure = MutableStateFlow<Pair<Int, String>?>(null)
+    private val _watchlistRetryFailure = MutableStateFlow<Pair<Int, String>?>(null)
+    private val _customListsRetryFailure = MutableStateFlow<Pair<Int, String>?>(null)
+
+    // Last known good cached lists in memory so offline mode always shows cached data instead of an error screen
+    @Volatile
+    private var lastCachedWatched: List<WatchedMovie>? = null
+
+    @Volatile
+    private var lastCachedWatchlist: List<WatchlistItem>? = null
+
+    @Volatile
+    private var lastCachedCustomLists: List<CustomList>? = null
+
+    private fun markSyncSucceeded() {
+        val now = System.currentTimeMillis()
+        _lastSyncedAtMillis.value = now
+        settingsRepository.saveLastSyncedAtMillis(now)
+    }
+
+    private fun beginSyncOperation() {
+        val count = activeSyncOpsCount.incrementAndGet()
+        if (count > 0) {
+            _isSyncingLibrary.value = true
+        }
+    }
+
+    private fun endSyncOperation() {
+        val count = activeSyncOpsCount.decrementAndGet().coerceAtLeast(0)
+        if (count == 0) {
+            _isSyncingLibrary.value = false
+        }
+    }
+
+    private fun emitReAuthRequired(reason: String) {
+        Log.e(TAG, "Auth required ($reason): opening login screen with \"$REAUTH_REQUIRED_MESSAGE\"")
+        _reAuthRequiredEvents.tryEmit(REAUTH_REQUIRED_MESSAGE)
+    }
+
+    /**
+     * Executes the 3-step Firestore listener retry:
+     * 1. Refresh the Firebase ID token (`getIdToken(true)`).
+     * 2. Re-attach the snapshot listener via the repository retry trigger.
+     * 3. Run one read-only `Source.SERVER` fetch to confirm access (never deletes or overwrites data).
+     */
+    private fun launchSingleStreamRetry(
+        streamName: String,
+        tracker: StreamRetryTracker,
+        currentRetryCount: Int,
+        retryFailureState: MutableStateFlow<Pair<Int, String>?>?,
+        reattachListener: () -> Int,
+        verifyServerAccess: suspend (uid: String) -> Result<Unit>,
+        onUnrecoverableError: ((String) -> Unit)? = null,
+    ) {
+        if (tracker.inFlightRetry) return
+        tracker.inFlightRetry = true
+        beginSyncOperation()
+
+        viewModelScope.launch {
+            try {
+                val user = auth.currentUser
+                if (user == null) {
+                    emitReAuthRequired("$streamName retry with null FirebaseUser")
+                    retryFailureState?.value = currentRetryCount to REAUTH_REQUIRED_MESSAGE
+                    onUnrecoverableError?.invoke(REAUTH_REQUIRED_MESSAGE)
+                    return@launch
+                }
+
+                // Step 1: Refresh ID token
+                try {
+                    tokenRefresher(user)
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    Log.e(
+                        TAG,
+                        "ID token refresh failed for [$streamName]: ${e::class.java.name}: ${e.message}",
+                        e,
+                    )
+                    val techError = formatTechnicalFirestoreError(e, "Failed to refresh authentication token.")
+                    if (auth.currentUser == null || isAuthSessionInvalidError(e)) {
+                        emitReAuthRequired("$streamName token refresh invalid session")
+                        retryFailureState?.value = currentRetryCount to REAUTH_REQUIRED_MESSAGE
+                        onUnrecoverableError?.invoke(REAUTH_REQUIRED_MESSAGE)
+                    } else {
+                        retryFailureState?.value = currentRetryCount to techError
+                        onUnrecoverableError?.invoke(techError)
+                    }
+                    return@launch
+                }
+
+                // Step 2: Re-attach the snapshot listener via repository retry trigger
+                val newRetryCount = reattachListener()
+
+                // Step 3: Do one read-only server fetch to confirm access (never modifies data)
+                val verifyResult = verifyServerAccess(user.uid)
+                verifyResult.fold(
+                    onSuccess = {
+                        retryFailureState?.value = null
+                        markSyncSucceeded()
+                    },
+                    onFailure = { error ->
+                        Log.e(
+                            TAG,
+                            "Server access verification failed for [$streamName]: ${error::class.java.name}: ${error.message}",
+                            error,
+                        )
+                        if (auth.currentUser == null || isAuthSessionInvalidError(error)) {
+                            emitReAuthRequired("$streamName server verification unauthenticated")
+                            retryFailureState?.value = newRetryCount to REAUTH_REQUIRED_MESSAGE
+                            onUnrecoverableError?.invoke(REAUTH_REQUIRED_MESSAGE)
+                        } else if (isOnline.value) {
+                            val techError = formatTechnicalFirestoreError(error, "Unable to confirm server access.")
+                            retryFailureState?.value = newRetryCount to techError
+                            onUnrecoverableError?.invoke(techError)
+                        } else {
+                            // Offline: clear error override so cached data + Offline banner remain visible
+                            retryFailureState?.value = null
+                        }
+                    },
+                )
+            } finally {
+                tracker.inFlightRetry = false
+                endSyncOperation()
+            }
+        }
+    }
+
+    /**
+     * Manual full library sync trigger (used by Top Bar sync icon, Settings Sync button,
+     * Pull-to-refresh on Watched, and "Sync now" on error states).
+     * Never deletes or overwrites any user data.
+     */
+    fun syncNow() {
+        if (_isSyncingLibrary.value) return
+        if (!isOnline.value) {
+            emitSnackbar("Offline — showing cached data. Sync will resume when back online.")
+            return
+        }
+        val user = auth.currentUser
+        if (user == null) {
+            emitReAuthRequired("manual syncNow with null FirebaseUser")
+            return
+        }
+
+        // Mark auto-retry as used so a manual retry won't silently cascade into a second automatic retry
+        listOf(
+            watchedRetryTracker,
+            watchlistRetryTracker,
+            customListsRetryTracker,
+            seasonsRetryTracker,
+            settingsRetryTracker,
+        ).forEach { tracker ->
+            tracker.autoRetryUsedForSession = true
+            tracker.inFlightRetry = true
+        }
+        _watchedRetryFailure.value = null
+        _watchlistRetryFailure.value = null
+        _customListsRetryFailure.value = null
+
+        beginSyncOperation()
+        viewModelScope.launch {
+            try {
+                // Step 1: Refresh ID token once
+                try {
+                    tokenRefresher(user)
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    Log.e(
+                        TAG,
+                        "Manual syncNow getIdToken(true) failed: ${e::class.java.name}: ${e.message}",
+                        e,
+                    )
+                    if (auth.currentUser == null || isAuthSessionInvalidError(e)) {
+                        emitReAuthRequired("manual syncNow token refresh invalid session")
+                        return@launch
+                    }
+                    val techError = formatTechnicalFirestoreError(e, "Failed to refresh authentication token.")
+                    _watchedRetryFailure.value = watchedRepository.retryTrigger.value to techError
+                    _watchlistRetryFailure.value = watchlistRepository.retryTrigger.value to techError
+                    _customListsRetryFailure.value = customListRepository.retryTrigger.value to techError
+                    return@launch
+                }
+
+                // Step 2: Re-attach all Firestore snapshot listeners via repository retry triggers
+                watchedRepository.triggerRetry()
+                val watchedRetryGen = watchedRepository.retryTrigger.value
+                watchlistRepository.triggerRetry()
+                val watchlistRetryGen = watchlistRepository.retryTrigger.value
+                customListRepository.triggerRetry()
+                val listsRetryGen = customListRepository.retryTrigger.value
+                settingsRepository.triggerRetry()
+                val activeTvId = _movieModal.value?.takeIf { it.mediaType == MediaType.TV }?.movieId
+                if (activeTvId != null) {
+                    tvProgressRepository.triggerRetry()
+                }
+
+                // Step 3: Run one read-only Source.SERVER fetch per collection to confirm access
+                val uid = user.uid
+                val results = coroutineScope {
+                    val watchedDeferred = async { watchedRepository.verifyServerAccess(uid) }
+                    val watchlistDeferred = async { watchlistRepository.verifyServerAccess(uid) }
+                    val listsDeferred = async { customListRepository.verifyServerAccess(uid) }
+                    val settingsDeferred = async { settingsRepository.verifyServerAccess(uid) }
+                    val seasonsDeferred = activeTvId?.let { tvId ->
+                        async { tvProgressRepository.verifyServerAccess(uid, tvId) }
+                    }
+                    listOfNotNull(
+                        "watched" to watchedDeferred.await(),
+                        "watchlist" to watchlistDeferred.await(),
+                        "lists" to listsDeferred.await(),
+                        "settings" to settingsDeferred.await(),
+                        seasonsDeferred?.let { "seasons" to it.await() },
+                    )
+                }
+
+                var anySuccess = false
+                var authLost = false
+                results.forEach { (streamName, result) ->
+                    result.fold(
+                        onSuccess = { anySuccess = true },
+                        onFailure = { error ->
+                            Log.e(
+                                TAG,
+                                "Manual syncNow server fetch [$streamName] failed: ${error::class.java.name}: ${error.message}",
+                                error,
+                            )
+                            if (auth.currentUser == null || isAuthSessionInvalidError(error)) {
+                                authLost = true
+                            } else if (isOnline.value) {
+                                val techError = formatTechnicalFirestoreError(error, "Unable to sync $streamName.")
+                                when (streamName) {
+                                    "watched" -> _watchedRetryFailure.value = watchedRetryGen to techError
+                                    "watchlist" -> _watchlistRetryFailure.value = watchlistRetryGen to techError
+                                    "lists" -> _customListsRetryFailure.value = listsRetryGen to techError
+                                }
+                            }
+                        },
+                    )
+                }
+
+                if (authLost || auth.currentUser == null) {
+                    emitReAuthRequired("manual syncNow auth lost during server fetch")
+                } else if (anySuccess) {
+                    markSyncSucceeded()
+                    val failedStreams = results.count { it.second.isFailure }
+                    if (failedStreams == 0) {
+                        emitSnackbar("Library synced.")
+                    }
+                }
+            } finally {
+                listOf(
+                    watchedRetryTracker,
+                    watchlistRetryTracker,
+                    customListsRetryTracker,
+                    seasonsRetryTracker,
+                    settingsRetryTracker,
+                ).forEach { it.inFlightRetry = false }
+                endSyncOperation()
+            }
+        }
+    }
+
+    fun retryWatchedSync() {
+        if (!isOnline.value) {
+            emitSnackbar("Offline — showing cached data.")
+            return
+        }
+        watchedRetryTracker.autoRetryUsedForSession = true
+        _watchedRetryFailure.value = null
+        launchSingleStreamRetry(
+            streamName = "watched",
+            tracker = watchedRetryTracker,
+            currentRetryCount = watchedRepository.retryTrigger.value,
+            retryFailureState = _watchedRetryFailure,
+            reattachListener = {
+                watchedRepository.triggerRetry()
+                watchedRepository.retryTrigger.value
+            },
+            verifyServerAccess = { uid -> watchedRepository.verifyServerAccess(uid) },
+        )
+    }
+
+    fun retryWatchlistSync() {
+        if (!isOnline.value) {
+            emitSnackbar("Offline — showing cached data.")
+            return
+        }
+        watchlistRetryTracker.autoRetryUsedForSession = true
+        _watchlistRetryFailure.value = null
+        launchSingleStreamRetry(
+            streamName = "watchlist",
+            tracker = watchlistRetryTracker,
+            currentRetryCount = watchlistRepository.retryTrigger.value,
+            retryFailureState = _watchlistRetryFailure,
+            reattachListener = {
+                watchlistRepository.triggerRetry()
+                watchlistRepository.retryTrigger.value
+            },
+            verifyServerAccess = { uid -> watchlistRepository.verifyServerAccess(uid) },
+        )
+    }
+
+    fun retryCustomListsSync() {
+        if (!isOnline.value) {
+            emitSnackbar("Offline — showing cached data.")
+            return
+        }
+        customListsRetryTracker.autoRetryUsedForSession = true
+        _customListsRetryFailure.value = null
+        launchSingleStreamRetry(
+            streamName = "lists",
+            tracker = customListsRetryTracker,
+            currentRetryCount = customListRepository.retryTrigger.value,
+            retryFailureState = _customListsRetryFailure,
+            reattachListener = {
+                customListRepository.triggerRetry()
+                customListRepository.retryTrigger.value
+            },
+            verifyServerAccess = { uid -> customListRepository.verifyServerAccess(uid) },
+        )
+    }
+
+    fun retrySeasonsSync(tvId: Long) {
+        if (!isOnline.value) {
+            emitSnackbar("Offline — showing cached data.")
+            return
+        }
+        seasonsRetryTracker.autoRetryUsedForSession = true
+        launchSingleStreamRetry(
+            streamName = "seasons($tvId)",
+            tracker = seasonsRetryTracker,
+            currentRetryCount = tvProgressRepository.retryTrigger.value,
+            retryFailureState = null,
+            reattachListener = {
+                tvProgressRepository.triggerRetry()
+                tvProgressRepository.retryTrigger.value
+            },
+            verifyServerAccess = { uid -> tvProgressRepository.verifyServerAccess(uid, tvId) },
+            onUnrecoverableError = { msg -> emitSnackbar(msg) },
+        )
+    }
+
+    fun retrySettingsSync() {
+        if (!isOnline.value) return
+        settingsRetryTracker.autoRetryUsedForSession = true
+        launchSingleStreamRetry(
+            streamName = "settings",
+            tracker = settingsRetryTracker,
+            currentRetryCount = settingsRepository.retryTrigger.value,
+            retryFailureState = null,
+            reattachListener = {
+                settingsRepository.triggerRetry()
+                settingsRepository.retryTrigger.value
+            },
+            verifyServerAccess = { uid -> settingsRepository.verifyServerAccess(uid) },
+        )
+    }
+
     private fun emitSnackbar(
         message: String,
         actionLabel: String? = null,
@@ -358,18 +767,61 @@ class CineLogViewModel(
 
     init {
         viewModelScope.launch {
-            settingsRepository.observeSettings(currentUserId)
-                .catch { /* Rely on local cached preference when offline or missing */ }
-                .collect { remote ->
-                    if (remote != null) {
-                        val preset = AccentPreset.fromKey(remote.accentPreset)
-                        val hex = UserSettingsRepository.normalizeHexColor(remote.accentHex) ?: preset.defaultHex
-                        val pref = LocalAccentPreference(preset = preset, hex = hex)
-                        _accentPreference.value = pref
-                        settingsRepository.saveLocalAccent(preset, hex)
-                        _tvMigrationCompleted.value = remote.tvMigrationCompleted
-                    } else if (_tvMigrationCompleted.value == null) {
-                        _tvMigrationCompleted.value = false
+            settingsRepository.observeSettingsForAuthUser()
+                .collect { state ->
+                    when (state) {
+                        is FirestoreSnapshotState.Unauthenticated -> {
+                            settingsRetryTracker.resetForUid(null)
+                        }
+                        is FirestoreSnapshotState.Loading -> {
+                            if (settingsRetryTracker.activeUid != state.uid) {
+                                settingsRetryTracker.resetForUid(state.uid)
+                            }
+                        }
+                        is FirestoreSnapshotState.Data -> {
+                            if (settingsRetryTracker.activeUid != state.uid) {
+                                settingsRetryTracker.resetForUid(state.uid)
+                            }
+                            if (!state.isFromCache) {
+                                settingsRetryTracker.autoRetryUsedForSession = false
+                                markSyncSucceeded()
+                            }
+                            val remote = state.value
+                            if (remote != null) {
+                                val preset = AccentPreset.fromKey(remote.accentPreset)
+                                val hex = UserSettingsRepository.normalizeHexColor(remote.accentHex) ?: preset.defaultHex
+                                val pref = LocalAccentPreference(preset = preset, hex = hex)
+                                _accentPreference.value = pref
+                                settingsRepository.saveLocalAccent(preset, hex)
+                                _tvMigrationCompleted.value = remote.tvMigrationCompleted
+                            } else if (_tvMigrationCompleted.value == null) {
+                                _tvMigrationCompleted.value = false
+                            }
+                        }
+                        is FirestoreSnapshotState.Error -> {
+                            if (auth.currentUser == null) {
+                                emitReAuthRequired("settings listener error with null user")
+                            } else if (
+                                isOnline.value &&
+                                !settingsRetryTracker.autoRetryUsedForSession &&
+                                !settingsRetryTracker.inFlightRetry &&
+                                settingsRetryTracker.lastHandledErrorRetryCount != state.retryCount
+                            ) {
+                                settingsRetryTracker.autoRetryUsedForSession = true
+                                settingsRetryTracker.lastHandledErrorRetryCount = state.retryCount
+                                launchSingleStreamRetry(
+                                    streamName = "settings",
+                                    tracker = settingsRetryTracker,
+                                    currentRetryCount = state.retryCount,
+                                    retryFailureState = null,
+                                    reattachListener = {
+                                        settingsRepository.triggerRetry()
+                                        settingsRepository.retryTrigger.value
+                                    },
+                                    verifyServerAccess = { uid -> settingsRepository.verifyServerAccess(uid) },
+                                )
+                            }
+                        }
                     }
                 }
         }
@@ -457,25 +909,104 @@ class CineLogViewModel(
         initialValue = emptyList(),
     )
 
-    // Real-time Firestore watched list
-    val watchedState: StateFlow<WatchedUiState> = watchedRepository.observeWatchedMovies(currentUserId)
-        .map<List<WatchedMovie>, WatchedUiState> { movies -> WatchedUiState.Success(movies) }
-        .catch { error ->
-            val firestoreError = generateSequence(error) { it.cause }
-                .filterIsInstance<FirebaseFirestoreException>()
-                .firstOrNull()
-            if (firestoreError == null && error is CancellationException) throw error
-            val rootError = firestoreError ?: error
-            Log.w(TAG, "Error observing watched items", rootError)
-            val msg = rootError.message ?: "Failed to sync watched library."
-            _snackbarMessages.tryEmit(msg)
-            emit(WatchedUiState.Error(msg))
+    // Real-time auth-gated Firestore watched list with single auto-retry and offline cached fallback
+    val watchedState: StateFlow<WatchedUiState> = combine(
+        watchedRepository.observeWatchedMoviesForAuthUser(),
+        _watchedRetryFailure,
+        isOnline,
+    ) { snapshotState, retryFailure, online ->
+        when (snapshotState) {
+            is FirestoreSnapshotState.Unauthenticated -> {
+                watchedRetryTracker.resetForUid(null)
+                _watchedRetryFailure.value = null
+                if (auth.currentUser == null) {
+                    emitReAuthRequired("watched stream unauthenticated")
+                }
+                WatchedUiState.Loading
+            }
+            is FirestoreSnapshotState.Loading -> {
+                if (watchedRetryTracker.activeUid != snapshotState.uid) {
+                    watchedRetryTracker.resetForUid(snapshotState.uid)
+                    _watchedRetryFailure.value = null
+                }
+                val failureForGen = retryFailure?.takeIf { it.first == snapshotState.retryCount }
+                if (failureForGen != null && online) {
+                    WatchedUiState.Error(failureForGen.second)
+                } else if (!online && lastCachedWatched != null) {
+                    WatchedUiState.Success(lastCachedWatched.orEmpty())
+                } else {
+                    WatchedUiState.Loading
+                }
+            }
+            is FirestoreSnapshotState.Data -> {
+                if (watchedRetryTracker.activeUid != snapshotState.uid) {
+                    watchedRetryTracker.resetForUid(snapshotState.uid)
+                }
+                lastCachedWatched = snapshotState.value
+                if (!snapshotState.isFromCache) {
+                    watchedRetryTracker.autoRetryUsedForSession = false
+                    _watchedRetryFailure.value = null
+                    markSyncSucceeded()
+                }
+                val failureForGen = retryFailure?.takeIf { it.first == snapshotState.retryCount }
+                if (online && snapshotState.isFromCache && failureForGen != null) {
+                    WatchedUiState.Error(failureForGen.second)
+                } else {
+                    WatchedUiState.Success(snapshotState.value)
+                }
+            }
+            is FirestoreSnapshotState.Error -> {
+                if (!online) {
+                    // Offline: show cached data with Offline banner instead of an error screen
+                    WatchedUiState.Success(lastCachedWatched.orEmpty())
+                } else if (auth.currentUser == null) {
+                    emitReAuthRequired("watched listener error with null FirebaseUser")
+                    WatchedUiState.Error(REAUTH_REQUIRED_MESSAGE)
+                } else {
+                    val failureForGen = retryFailure?.takeIf { it.first == snapshotState.retryCount }
+                    if (failureForGen != null) {
+                        WatchedUiState.Error(failureForGen.second)
+                    } else if (
+                        !watchedRetryTracker.autoRetryUsedForSession &&
+                        !watchedRetryTracker.inFlightRetry &&
+                        watchedRetryTracker.lastHandledErrorRetryCount != snapshotState.retryCount
+                    ) {
+                        watchedRetryTracker.autoRetryUsedForSession = true
+                        watchedRetryTracker.lastHandledErrorRetryCount = snapshotState.retryCount
+                        launchSingleStreamRetry(
+                            streamName = "watched",
+                            tracker = watchedRetryTracker,
+                            currentRetryCount = snapshotState.retryCount,
+                            retryFailureState = _watchedRetryFailure,
+                            reattachListener = {
+                                watchedRepository.triggerRetry()
+                                watchedRepository.retryTrigger.value
+                            },
+                            verifyServerAccess = { uid -> watchedRepository.verifyServerAccess(uid) },
+                        )
+                        WatchedUiState.Loading
+                    } else if (watchedRetryTracker.inFlightRetry) {
+                        WatchedUiState.Loading
+                    } else {
+                        val techMsg = formatTechnicalFirestoreError(
+                            snapshotState.error,
+                            "Failed to sync watched library.",
+                        )
+                        val errorKey = "${snapshotState.uid}:${snapshotState.retryCount}:$techMsg"
+                        if (watchedRetryTracker.lastNotifiedErrorKey != errorKey) {
+                            watchedRetryTracker.lastNotifiedErrorKey = errorKey
+                            _snackbarMessages.tryEmit("Couldn't sync your library.")
+                        }
+                        WatchedUiState.Error(techMsg)
+                    }
+                }
+            }
         }
-        .stateIn(
-            scope = viewModelScope,
-            started = SharingStarted.WhileSubscribed(STOP_TIMEOUT_MILLIS),
-            initialValue = WatchedUiState.Loading,
-        )
+    }.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(STOP_TIMEOUT_MILLIS),
+        initialValue = WatchedUiState.Loading,
+    )
 
     val watchedMap: StateFlow<Map<String, WatchedMovie>> = watchedState
         .map { state ->
@@ -581,29 +1112,96 @@ class CineLogViewModel(
             initialValue = emptyMap(),
         )
 
-    // Real-time Firestore Watchlist
-    val watchlistState: StateFlow<WatchlistUiState> = watchlistRepository.observeWatchlist(currentUserId)
-        .map<List<WatchlistItem>, WatchlistUiState> { items ->
-            WatchlistUiState.Success(
-                items.sortedByDescending { it.addedAt ?: Timestamp(0, 0) }
-            )
+    // Real-time auth-gated Firestore Watchlist with single auto-retry and offline cached fallback
+    val watchlistState: StateFlow<WatchlistUiState> = combine(
+        watchlistRepository.observeWatchlistForAuthUser(),
+        _watchlistRetryFailure,
+        isOnline,
+    ) { snapshotState, retryFailure, online ->
+        when (snapshotState) {
+            is FirestoreSnapshotState.Unauthenticated -> {
+                watchlistRetryTracker.resetForUid(null)
+                _watchlistRetryFailure.value = null
+                WatchlistUiState.Loading
+            }
+            is FirestoreSnapshotState.Loading -> {
+                if (watchlistRetryTracker.activeUid != snapshotState.uid) {
+                    watchlistRetryTracker.resetForUid(snapshotState.uid)
+                    _watchlistRetryFailure.value = null
+                }
+                val failureForGen = retryFailure?.takeIf { it.first == snapshotState.retryCount }
+                if (failureForGen != null && online) {
+                    WatchlistUiState.Error(failureForGen.second)
+                } else if (!online && lastCachedWatchlist != null) {
+                    WatchlistUiState.Success(lastCachedWatchlist.orEmpty())
+                } else {
+                    WatchlistUiState.Loading
+                }
+            }
+            is FirestoreSnapshotState.Data -> {
+                if (watchlistRetryTracker.activeUid != snapshotState.uid) {
+                    watchlistRetryTracker.resetForUid(snapshotState.uid)
+                }
+                val sorted = snapshotState.value.sortedByDescending { it.addedAt ?: Timestamp(0, 0) }
+                lastCachedWatchlist = sorted
+                if (!snapshotState.isFromCache) {
+                    watchlistRetryTracker.autoRetryUsedForSession = false
+                    _watchlistRetryFailure.value = null
+                    markSyncSucceeded()
+                }
+                val failureForGen = retryFailure?.takeIf { it.first == snapshotState.retryCount }
+                if (online && snapshotState.isFromCache && failureForGen != null) {
+                    WatchlistUiState.Error(failureForGen.second)
+                } else {
+                    WatchlistUiState.Success(sorted)
+                }
+            }
+            is FirestoreSnapshotState.Error -> {
+                if (!online) {
+                    WatchlistUiState.Success(lastCachedWatchlist.orEmpty())
+                } else if (auth.currentUser == null) {
+                    emitReAuthRequired("watchlist listener error with null FirebaseUser")
+                    WatchlistUiState.Error(REAUTH_REQUIRED_MESSAGE)
+                } else {
+                    val failureForGen = retryFailure?.takeIf { it.first == snapshotState.retryCount }
+                    if (failureForGen != null) {
+                        WatchlistUiState.Error(failureForGen.second)
+                    } else if (
+                        !watchlistRetryTracker.autoRetryUsedForSession &&
+                        !watchlistRetryTracker.inFlightRetry &&
+                        watchlistRetryTracker.lastHandledErrorRetryCount != snapshotState.retryCount
+                    ) {
+                        watchlistRetryTracker.autoRetryUsedForSession = true
+                        watchlistRetryTracker.lastHandledErrorRetryCount = snapshotState.retryCount
+                        launchSingleStreamRetry(
+                            streamName = "watchlist",
+                            tracker = watchlistRetryTracker,
+                            currentRetryCount = snapshotState.retryCount,
+                            retryFailureState = _watchlistRetryFailure,
+                            reattachListener = {
+                                watchlistRepository.triggerRetry()
+                                watchlistRepository.retryTrigger.value
+                            },
+                            verifyServerAccess = { uid -> watchlistRepository.verifyServerAccess(uid) },
+                        )
+                        WatchlistUiState.Loading
+                    } else if (watchlistRetryTracker.inFlightRetry) {
+                        WatchlistUiState.Loading
+                    } else {
+                        val techMsg = formatTechnicalFirestoreError(
+                            snapshotState.error,
+                            "Failed to sync watchlist.",
+                        )
+                        WatchlistUiState.Error(techMsg)
+                    }
+                }
+            }
         }
-        .catch { error ->
-            val firestoreError = generateSequence(error) { it.cause }
-                .filterIsInstance<FirebaseFirestoreException>()
-                .firstOrNull()
-            if (firestoreError == null && error is CancellationException) throw error
-            val rootError = firestoreError ?: error
-            Log.w(TAG, "Error observing watchlist", rootError)
-            val msg = rootError.message ?: "Failed to sync watchlist."
-            _snackbarMessages.tryEmit(msg)
-            emit(WatchlistUiState.Error(msg))
-        }
-        .stateIn(
-            scope = viewModelScope,
-            started = SharingStarted.WhileSubscribed(STOP_TIMEOUT_MILLIS),
-            initialValue = WatchlistUiState.Loading,
-        )
+    }.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(STOP_TIMEOUT_MILLIS),
+        initialValue = WatchlistUiState.Loading,
+    )
 
     val watchlistMap: StateFlow<Map<String, WatchlistItem>> = watchlistState
         .map { state ->
@@ -626,29 +1224,98 @@ class CineLogViewModel(
             initialValue = 0,
         )
 
-    // Real-time Firestore Custom Lists
-    val customListsState: StateFlow<CustomListsUiState> = customListRepository.observeLists(currentUserId)
-        .map<List<CustomList>, CustomListsUiState> { lists ->
-            CustomListsUiState.Success(
-                lists.sortedByDescending { it.updatedAt ?: it.createdAt ?: Timestamp(0, 0) }
-            )
+    // Real-time auth-gated Firestore Custom Lists with single auto-retry and offline cached fallback
+    val customListsState: StateFlow<CustomListsUiState> = combine(
+        customListRepository.observeListsForAuthUser(),
+        _customListsRetryFailure,
+        isOnline,
+    ) { snapshotState, retryFailure, online ->
+        when (snapshotState) {
+            is FirestoreSnapshotState.Unauthenticated -> {
+                customListsRetryTracker.resetForUid(null)
+                _customListsRetryFailure.value = null
+                CustomListsUiState.Loading
+            }
+            is FirestoreSnapshotState.Loading -> {
+                if (customListsRetryTracker.activeUid != snapshotState.uid) {
+                    customListsRetryTracker.resetForUid(snapshotState.uid)
+                    _customListsRetryFailure.value = null
+                }
+                val failureForGen = retryFailure?.takeIf { it.first == snapshotState.retryCount }
+                if (failureForGen != null && online) {
+                    CustomListsUiState.Error(failureForGen.second)
+                } else if (!online && lastCachedCustomLists != null) {
+                    CustomListsUiState.Success(lastCachedCustomLists.orEmpty())
+                } else {
+                    CustomListsUiState.Loading
+                }
+            }
+            is FirestoreSnapshotState.Data -> {
+                if (customListsRetryTracker.activeUid != snapshotState.uid) {
+                    customListsRetryTracker.resetForUid(snapshotState.uid)
+                }
+                val sorted = snapshotState.value.sortedByDescending {
+                    it.updatedAt ?: it.createdAt ?: Timestamp(0, 0)
+                }
+                lastCachedCustomLists = sorted
+                if (!snapshotState.isFromCache) {
+                    customListsRetryTracker.autoRetryUsedForSession = false
+                    _customListsRetryFailure.value = null
+                    markSyncSucceeded()
+                }
+                val failureForGen = retryFailure?.takeIf { it.first == snapshotState.retryCount }
+                if (online && snapshotState.isFromCache && failureForGen != null) {
+                    CustomListsUiState.Error(failureForGen.second)
+                } else {
+                    CustomListsUiState.Success(sorted)
+                }
+            }
+            is FirestoreSnapshotState.Error -> {
+                if (!online) {
+                    CustomListsUiState.Success(lastCachedCustomLists.orEmpty())
+                } else if (auth.currentUser == null) {
+                    emitReAuthRequired("lists listener error with null FirebaseUser")
+                    CustomListsUiState.Error(REAUTH_REQUIRED_MESSAGE)
+                } else {
+                    val failureForGen = retryFailure?.takeIf { it.first == snapshotState.retryCount }
+                    if (failureForGen != null) {
+                        CustomListsUiState.Error(failureForGen.second)
+                    } else if (
+                        !customListsRetryTracker.autoRetryUsedForSession &&
+                        !customListsRetryTracker.inFlightRetry &&
+                        customListsRetryTracker.lastHandledErrorRetryCount != snapshotState.retryCount
+                    ) {
+                        customListsRetryTracker.autoRetryUsedForSession = true
+                        customListsRetryTracker.lastHandledErrorRetryCount = snapshotState.retryCount
+                        launchSingleStreamRetry(
+                            streamName = "lists",
+                            tracker = customListsRetryTracker,
+                            currentRetryCount = snapshotState.retryCount,
+                            retryFailureState = _customListsRetryFailure,
+                            reattachListener = {
+                                customListRepository.triggerRetry()
+                                customListRepository.retryTrigger.value
+                            },
+                            verifyServerAccess = { uid -> customListRepository.verifyServerAccess(uid) },
+                        )
+                        CustomListsUiState.Loading
+                    } else if (customListsRetryTracker.inFlightRetry) {
+                        CustomListsUiState.Loading
+                    } else {
+                        val techMsg = formatTechnicalFirestoreError(
+                            snapshotState.error,
+                            "Failed to sync custom lists.",
+                        )
+                        CustomListsUiState.Error(techMsg)
+                    }
+                }
+            }
         }
-        .catch { error ->
-            val firestoreError = generateSequence(error) { it.cause }
-                .filterIsInstance<FirebaseFirestoreException>()
-                .firstOrNull()
-            if (firestoreError == null && error is CancellationException) throw error
-            val rootError = firestoreError ?: error
-            Log.w(TAG, "Error observing custom lists", rootError)
-            val msg = rootError.message ?: "Failed to sync custom lists."
-            _snackbarMessages.tryEmit(msg)
-            emit(CustomListsUiState.Error(msg))
-        }
-        .stateIn(
-            scope = viewModelScope,
-            started = SharingStarted.WhileSubscribed(STOP_TIMEOUT_MILLIS),
-            initialValue = CustomListsUiState.Loading,
-        )
+    }.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(STOP_TIMEOUT_MILLIS),
+        initialValue = CustomListsUiState.Loading,
+    )
 
     val customLists: StateFlow<List<CustomList>> = customListsState
         .map { state ->
@@ -715,22 +1382,66 @@ class CineLogViewModel(
     private val confirmedModalTvSeasons: Flow<Map<Int, WatchedSeason>> = activeModalTvIdFlow
         .flatMapLatest { tvId ->
             if (tvId == null) {
-                kotlinx.coroutines.flow.flowOf(emptyMap())
+                flowOf(emptyMap())
             } else {
-                tvProgressRepository.observeSeasonsForShow(currentUserId, tvId)
-                    .map { seasons -> seasons.associateBy { it.seasonNumber } }
-                    .onEach { confirmedMap ->
-                        if (!_isSavingTvProgress.value) {
-                            reconcileOptimisticOverrides(tvId, confirmedMap)
+                tvProgressRepository.observeSeasonsForAuthUser(tvId)
+                    .map { snapshotState ->
+                        when (snapshotState) {
+                            is FirestoreSnapshotState.Unauthenticated -> {
+                                seasonsRetryTracker.resetForUid(null)
+                                emptyMap()
+                            }
+                            is FirestoreSnapshotState.Loading -> {
+                                if (seasonsRetryTracker.activeUid != snapshotState.uid) {
+                                    seasonsRetryTracker.resetForUid(snapshotState.uid)
+                                }
+                                emptyMap()
+                            }
+                            is FirestoreSnapshotState.Data -> {
+                                if (seasonsRetryTracker.activeUid != snapshotState.uid) {
+                                    seasonsRetryTracker.resetForUid(snapshotState.uid)
+                                }
+                                if (!snapshotState.isFromCache) {
+                                    seasonsRetryTracker.autoRetryUsedForSession = false
+                                    markSyncSucceeded()
+                                }
+                                val confirmedMap = snapshotState.value.associateBy { it.seasonNumber }
+                                if (!_isSavingTvProgress.value) {
+                                    reconcileOptimisticOverrides(tvId, confirmedMap)
+                                }
+                                confirmedMap
+                            }
+                            is FirestoreSnapshotState.Error -> {
+                                if (auth.currentUser == null) {
+                                    emitReAuthRequired("seasons($tvId) listener error with null user")
+                                } else if (
+                                    isOnline.value &&
+                                    !seasonsRetryTracker.autoRetryUsedForSession &&
+                                    !seasonsRetryTracker.inFlightRetry &&
+                                    seasonsRetryTracker.lastHandledErrorRetryCount != snapshotState.retryCount
+                                ) {
+                                    seasonsRetryTracker.autoRetryUsedForSession = true
+                                    seasonsRetryTracker.lastHandledErrorRetryCount = snapshotState.retryCount
+                                    launchSingleStreamRetry(
+                                        streamName = "seasons($tvId)",
+                                        tracker = seasonsRetryTracker,
+                                        currentRetryCount = snapshotState.retryCount,
+                                        retryFailureState = null,
+                                        reattachListener = {
+                                            tvProgressRepository.triggerRetry()
+                                            tvProgressRepository.retryTrigger.value
+                                        },
+                                        verifyServerAccess = { uid ->
+                                            tvProgressRepository.verifyServerAccess(uid, tvId)
+                                        },
+                                        onUnrecoverableError = { msg -> emitSnackbar(msg) },
+                                    )
+                                } else if (isOnline.value) {
+                                    emitSnackbar(TvProgressRepository.formatSaveError(snapshotState.error))
+                                }
+                                emptyMap()
+                            }
                         }
-                    }
-                    .catch { error ->
-                        val root = generateSequence(error) { it.cause }
-                            .filterIsInstance<FirebaseFirestoreException>()
-                            .firstOrNull() ?: error
-                        Log.e(TAG, "observeSeasonsForShow failed tvId=$tvId message=${root.message}", root)
-                        emitSnackbar(TvProgressRepository.formatSaveError(root))
-                        emit(emptyMap())
                     }
             }
         }
