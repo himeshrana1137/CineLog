@@ -238,6 +238,7 @@ fun MainCinemaScreen(
     val selectedPersonStat by viewModel.selectedPersonStat.collectAsStateWithLifecycle()
     val isSyncingLibrary by viewModel.isSyncingLibrary.collectAsStateWithLifecycle()
     val lastSyncedAtMillis by viewModel.lastSyncedAtMillis.collectAsStateWithLifecycle()
+    val connectionCheckState by viewModel.connectionCheckState.collectAsStateWithLifecycle()
 
     LaunchedEffect(accentPreference.hex) {
         onAccentHexChanged(accentPreference.hex)
@@ -664,6 +665,8 @@ fun MainCinemaScreen(
                                 isSyncing = isSyncingLibrary,
                                 lastSyncedAtMillis = lastSyncedAtMillis,
                                 onSyncNow = viewModel::syncNow,
+                                connectionCheckState = connectionCheckState,
+                                onRunConnectionCheck = viewModel::runConnectionCheck,
                             )
                         }
                     }

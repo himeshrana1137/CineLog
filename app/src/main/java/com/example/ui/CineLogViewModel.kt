@@ -34,11 +34,13 @@ import com.example.data.repository.CustomListRepository
 import com.example.data.repository.LocalAccentPreference
 import com.example.data.repository.SeasonBatchWrite
 import com.example.data.repository.TmdbApiKeyMissingException
+import com.example.data.repository.TmdbHttpStatusException
 import com.example.data.repository.TmdbRepository
 import com.example.data.repository.TvProgressRepository
 import com.example.data.repository.UserSettingsRepository
 import com.example.data.repository.WatchedMovieRepository
 import com.example.data.repository.WatchlistRepository
+import retrofit2.HttpException
 import com.example.util.ImportCandidateRow
 import com.example.util.ImportExportHelper
 import com.example.util.ImportSourceFormat
@@ -147,12 +149,34 @@ sealed interface DiscoverUiState {
         val movies: List<MovieSummary>,
         val isSearchResult: Boolean,
         val mediaFilter: DiscoverMediaFilter,
+        val isOfflineData: Boolean = false,
+        val isRetrying: Boolean = false,
     ) : DiscoverUiState
     data class Error(
         val message: String,
+        val technicalDetails: String = message,
         val isMissingApiKey: Boolean = false,
+        val isRetrying: Boolean = false,
     ) : DiscoverUiState
 }
+
+sealed interface ConnectionTargetStatus {
+    data object Idle : ConnectionTargetStatus
+    data object Checking : ConnectionTargetStatus
+    data object Ok : ConnectionTargetStatus
+    data class Error(
+        val errorType: String,
+        val detail: String = "",
+    ) : ConnectionTargetStatus
+}
+
+data class ConnectionCheckUiState(
+    val isChecking: Boolean = false,
+    val hasRun: Boolean = false,
+    val tmdbApi: ConnectionTargetStatus = ConnectionTargetStatus.Idle,
+    val tmdbImages: ConnectionTargetStatus = ConnectionTargetStatus.Idle,
+    val firestore: ConnectionTargetStatus = ConnectionTargetStatus.Idle,
+)
 
 sealed interface WatchedUiState {
     data object Loading : WatchedUiState
@@ -400,6 +424,24 @@ class CineLogViewModel(
 
     @Volatile
     private var lastCachedCustomLists: List<CustomList>? = null
+
+    private data class CachedDiscoverResponse(
+        val movies: List<MovieSummary>,
+        val isSearchResult: Boolean,
+        val mediaFilter: DiscoverMediaFilter,
+    )
+
+    @Volatile
+    private var lastSuccessfulDiscover: CachedDiscoverResponse? = null
+
+    @Volatile
+    private var latestDiscoverState: DiscoverUiState = DiscoverUiState.Loading
+
+    @Volatile
+    private var lastDiscoverRequestKey: Pair<String, DiscoverMediaFilter>? = null
+
+    private val _connectionCheckState = MutableStateFlow(ConnectionCheckUiState())
+    val connectionCheckState: StateFlow<ConnectionCheckUiState> = _connectionCheckState.asStateFlow()
 
     private fun markSyncSucceeded() {
         val now = System.currentTimeMillis()
@@ -838,7 +880,28 @@ class CineLogViewModel(
     ) { query, mediaFilter, _ -> query to mediaFilter }
         .flatMapLatest { (query, mediaFilter) ->
             flow {
-                emit(DiscoverUiState.Loading)
+                val requestKey = query to mediaFilter
+                val isRetryOfSameRequest = lastDiscoverRequestKey == requestKey
+                lastDiscoverRequestKey = requestKey
+
+                when (val current = latestDiscoverState) {
+                    is DiscoverUiState.Error -> {
+                        if (isRetryOfSameRequest) {
+                            emit(current.copy(isRetrying = true))
+                        } else {
+                            emit(DiscoverUiState.Loading)
+                        }
+                    }
+                    is DiscoverUiState.Success -> {
+                        if (current.isOfflineData && isRetryOfSameRequest) {
+                            emit(current.copy(isRetrying = true))
+                        } else {
+                            emit(DiscoverUiState.Loading)
+                        }
+                    }
+                    is DiscoverUiState.Loading -> emit(DiscoverUiState.Loading)
+                }
+
                 val result = if (query.isBlank()) {
                     when (mediaFilter) {
                         DiscoverMediaFilter.ALL -> tmdbRepository.getTrendingAllMedia()
@@ -854,28 +917,63 @@ class CineLogViewModel(
                 }
                 result.fold(
                     onSuccess = { items ->
+                        val isSearch = query.isNotBlank()
+                        lastSuccessfulDiscover = CachedDiscoverResponse(
+                            movies = items,
+                            isSearchResult = isSearch,
+                            mediaFilter = mediaFilter,
+                        )
                         emit(
                             DiscoverUiState.Success(
                                 movies = items,
-                                isSearchResult = query.isNotBlank(),
+                                isSearchResult = isSearch,
                                 mediaFilter = mediaFilter,
+                                isOfflineData = false,
+                                isRetrying = false,
                             )
                         )
                         prefetchProvidersForCards(items.take(8))
                     },
                     onFailure = { error ->
-                        val isMissingKey = error is TmdbApiKeyMissingException
-                        val message = error.localizedMessage ?: "Failed to load titles."
-                        emit(
-                            DiscoverUiState.Error(
-                                message = message,
-                                isMissingApiKey = isMissingKey,
-                            )
+                        Log.e(
+                            TAG,
+                            "Discover TMDB load failed (query='$query', filter=$mediaFilter): " +
+                                "${error::class.java.name}: ${error.message}",
+                            error,
                         )
+                        val isMissingKey = error is TmdbApiKeyMissingException
+                        val cached = lastSuccessfulDiscover
+                        if (!isMissingKey && cached != null) {
+                            emit(
+                                DiscoverUiState.Success(
+                                    movies = cached.movies,
+                                    isSearchResult = cached.isSearchResult,
+                                    mediaFilter = cached.mediaFilter,
+                                    isOfflineData = true,
+                                    isRetrying = false,
+                                )
+                            )
+                        } else {
+                            val technicalDetails = formatTmdbTechnicalError(error)
+                            val displayMessage = if (isMissingKey) {
+                                error.localizedMessage ?: "TMDB API key is not configured."
+                            } else {
+                                DISCOVER_ERROR_MESSAGE
+                            }
+                            emit(
+                                DiscoverUiState.Error(
+                                    message = displayMessage,
+                                    technicalDetails = technicalDetails,
+                                    isMissingApiKey = isMissingKey,
+                                    isRetrying = false,
+                                )
+                            )
+                        }
                     }
                 )
             }
         }
+        .onEach { latestDiscoverState = it }
         .stateIn(
             scope = viewModelScope,
             started = SharingStarted.WhileSubscribed(STOP_TIMEOUT_MILLIS),
@@ -1644,7 +1742,126 @@ class CineLogViewModel(
     }
 
     fun retryDiscover() {
+        val current = latestDiscoverState
+        if ((current is DiscoverUiState.Error && current.isRetrying) ||
+            (current is DiscoverUiState.Success && current.isRetrying)
+        ) {
+            return
+        }
         _refreshTrigger.value += 1
+    }
+
+    /**
+     * Tests connectivity to `api.themoviedb.org`, `image.tmdb.org`, and Firestore
+     * and exposes OK or the error type for each target in Settings.
+     */
+    fun runConnectionCheck() {
+        if (_connectionCheckState.value.isChecking) return
+        _connectionCheckState.value = ConnectionCheckUiState(
+            isChecking = true,
+            hasRun = true,
+            tmdbApi = ConnectionTargetStatus.Checking,
+            tmdbImages = ConnectionTargetStatus.Checking,
+            firestore = ConnectionTargetStatus.Checking,
+        )
+
+        viewModelScope.launch {
+            coroutineScope {
+                val apiDeferred = async {
+                    val result = tmdbRepository.checkTmdbApiConnection()
+                    result.fold(
+                        onSuccess = { ConnectionTargetStatus.Ok },
+                        onFailure = { error ->
+                            Log.e(
+                                TAG,
+                                "Connection check [api.themoviedb.org] failed: ${error::class.java.name}: ${error.message}",
+                                error,
+                            )
+                            ConnectionTargetStatus.Error(
+                                errorType = classifyConnectionErrorType(error),
+                                detail = error.message.orEmpty(),
+                            )
+                        },
+                    )
+                }
+
+                val imagesDeferred = async {
+                    val result = tmdbRepository.checkTmdbImageConnection()
+                    result.fold(
+                        onSuccess = { ConnectionTargetStatus.Ok },
+                        onFailure = { error ->
+                            Log.e(
+                                TAG,
+                                "Connection check [image.tmdb.org] failed: ${error::class.java.name}: ${error.message}",
+                                error,
+                            )
+                            ConnectionTargetStatus.Error(
+                                errorType = classifyConnectionErrorType(error),
+                                detail = error.message.orEmpty(),
+                            )
+                        },
+                    )
+                }
+
+                val firestoreDeferred = async {
+                    val user = auth.currentUser
+                    if (user == null) {
+                        ConnectionTargetStatus.Error(
+                            errorType = "Unauthenticated",
+                            detail = REAUTH_REQUIRED_MESSAGE,
+                        )
+                    } else {
+                        val result = watchedRepository.verifyServerAccess(user.uid)
+                        result.fold(
+                            onSuccess = { ConnectionTargetStatus.Ok },
+                            onFailure = { error ->
+                                Log.e(
+                                    TAG,
+                                    "Connection check [Firestore] failed: ${error::class.java.name}: ${error.message}",
+                                    error,
+                                )
+                                ConnectionTargetStatus.Error(
+                                    errorType = classifyConnectionErrorType(error),
+                                    detail = error.message.orEmpty(),
+                                )
+                            },
+                        )
+                    }
+                }
+
+                _connectionCheckState.value = ConnectionCheckUiState(
+                    isChecking = false,
+                    hasRun = true,
+                    tmdbApi = apiDeferred.await(),
+                    tmdbImages = imagesDeferred.await(),
+                    firestore = firestoreDeferred.await(),
+                )
+            }
+        }
+    }
+
+    private fun formatTmdbTechnicalError(error: Throwable): String {
+        val root = error.cause ?: error
+        val className = root::class.java.simpleName.ifBlank { root::class.java.name }
+        val rawMessage = root.message?.takeIf { it.isNotBlank() }
+            ?: error.message?.takeIf { it.isNotBlank() }
+            ?: "Unknown network error"
+        return when (root) {
+            is HttpException -> "HttpException (HTTP ${root.code()}): $rawMessage"
+            is TmdbHttpStatusException -> "HTTP ${root.statusCode}: $rawMessage"
+            else -> if (rawMessage.startsWith(className)) rawMessage else "$className: $rawMessage"
+        }
+    }
+
+    private fun classifyConnectionErrorType(error: Throwable): String {
+        val root = error.cause ?: error
+        return when (root) {
+            is TmdbApiKeyMissingException -> "Missing API key"
+            is TmdbHttpStatusException -> "HTTP ${root.statusCode}"
+            is HttpException -> "HTTP ${root.code()}"
+            is FirebaseFirestoreException -> "Firestore (${root.code.name})"
+            else -> root::class.java.simpleName.ifBlank { "Error" }
+        }
     }
 
     fun onSortOptionSelected(option: WatchedSortOption) {
@@ -3200,8 +3417,9 @@ class CineLogViewModel(
         networkMonitor.unregister()
     }
 
-    private companion object {
+    internal companion object {
         const val TAG = "CineLogVM"
         const val STOP_TIMEOUT_MILLIS = 5000L
+        const val DISCOVER_ERROR_MESSAGE = "Could not reach TMDB. Check your internet and try again."
     }
 }

@@ -1,5 +1,6 @@
 package com.example.ui.screens
 
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -14,6 +15,7 @@ import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
@@ -34,6 +36,8 @@ import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.Casino
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.CloudOff
+import androidx.compose.material.icons.rounded.ExpandLess
 import androidx.compose.material.icons.rounded.ExpandMore
 import androidx.compose.material.icons.rounded.Key
 import androidx.compose.material.icons.rounded.Language
@@ -43,6 +47,7 @@ import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.WarningAmber
 import androidx.compose.material3.Button
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
@@ -53,6 +58,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
@@ -163,6 +169,8 @@ fun DiscoverScreen(
             }
 
             is DiscoverUiState.Error -> {
+                var showDetails by remember(discoverState.technicalDetails) { mutableStateOf(false) }
+
                 LazyColumn(
                     modifier = Modifier.fillMaxSize(),
                     contentPadding = PaddingValues(
@@ -183,7 +191,7 @@ fun DiscoverScreen(
                             onOpenLanguagePicker = { showLanguageSheet = true },
                         )
                     }
-                    item {
+                    item(key = "discover_error_card_item") {
                         Surface(
                             color = if (discoverState.isMissingApiKey) {
                                 CineElevated
@@ -198,7 +206,8 @@ fun DiscoverScreen(
                             ),
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(top = 16.dp),
+                                .padding(top = 16.dp)
+                                .testTag("discover_error_card"),
                         ) {
                             Column(
                                 modifier = Modifier.padding(20.dp),
@@ -221,36 +230,103 @@ fun DiscoverScreen(
                                         text = if (discoverState.isMissingApiKey) {
                                             stringResource(R.string.tmdb_key_banner_title)
                                         } else {
-                                            "Couldn't Load Titles"
+                                            stringResource(R.string.discover_error_message)
                                         },
-                                        style = MaterialTheme.typography.titleLarge,
+                                        style = MaterialTheme.typography.titleMedium,
                                         color = MaterialTheme.colorScheme.onSurface,
+                                        fontWeight = FontWeight.SemiBold,
                                     )
                                 }
-                                Text(
-                                    text = if (discoverState.isMissingApiKey) {
-                                        stringResource(R.string.tmdb_key_banner_body)
-                                    } else {
-                                        discoverState.message
-                                    },
-                                    style = MaterialTheme.typography.bodyLarge,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
-                                Spacer(modifier = Modifier.height(4.dp))
+                                if (discoverState.isMissingApiKey) {
+                                    Text(
+                                        text = stringResource(R.string.tmdb_key_banner_body),
+                                        style = MaterialTheme.typography.bodyLarge,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                }
+                                Spacer(modifier = Modifier.height(2.dp))
                                 Button(
                                     onClick = onRetry,
+                                    enabled = !discoverState.isRetrying,
                                     shape = RoundedCornerShape(10.dp),
                                     modifier = Modifier
+                                        .fillMaxWidth()
                                         .height(48.dp)
                                         .testTag("retry_discover_button"),
                                 ) {
-                                    Icon(
-                                        imageVector = Icons.Rounded.Refresh,
-                                        contentDescription = null,
-                                        modifier = Modifier.size(18.dp),
-                                    )
-                                    Spacer(modifier = Modifier.width(8.dp))
-                                    Text("Try Again")
+                                    if (discoverState.isRetrying) {
+                                        CircularProgressIndicator(
+                                            modifier = Modifier.size(18.dp),
+                                            strokeWidth = 2.dp,
+                                            color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.85f),
+                                        )
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        Text(
+                                            text = stringResource(R.string.discover_retrying_button),
+                                            fontWeight = FontWeight.Bold,
+                                            maxLines = 1,
+                                            softWrap = false,
+                                        )
+                                    } else {
+                                        Icon(
+                                            imageVector = Icons.Rounded.Refresh,
+                                            contentDescription = null,
+                                            modifier = Modifier.size(18.dp),
+                                        )
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        Text(
+                                            text = stringResource(R.string.discover_retry_button),
+                                            fontWeight = FontWeight.Bold,
+                                            maxLines = 1,
+                                            softWrap = false,
+                                        )
+                                    }
+                                }
+
+                                if (discoverState.technicalDetails.isNotBlank()) {
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .heightIn(min = 48.dp)
+                                            .clip(RoundedCornerShape(8.dp))
+                                            .clickable { showDetails = !showDetails }
+                                            .padding(horizontal = 4.dp)
+                                            .testTag("discover_error_details_toggle"),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                    ) {
+                                        Text(
+                                            text = stringResource(R.string.sync_details_toggle),
+                                            style = MaterialTheme.typography.labelLarge,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        )
+                                        Icon(
+                                            imageVector = if (showDetails) {
+                                                Icons.Rounded.ExpandLess
+                                            } else {
+                                                Icons.Rounded.ExpandMore
+                                            },
+                                            contentDescription = if (showDetails) "Hide details" else "Show details",
+                                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            modifier = Modifier.size(18.dp),
+                                        )
+                                    }
+                                    AnimatedVisibility(visible = showDetails) {
+                                        Surface(
+                                            color = MaterialTheme.colorScheme.surface.copy(alpha = 0.7f),
+                                            shape = RoundedCornerShape(8.dp),
+                                            modifier = Modifier.fillMaxWidth(),
+                                        ) {
+                                            Text(
+                                                text = discoverState.technicalDetails,
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                modifier = Modifier
+                                                    .padding(12.dp)
+                                                    .testTag("discover_error_details_text"),
+                                            )
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -279,6 +355,14 @@ fun DiscoverScreen(
                                 hasLanguages = languageChips.isNotEmpty(),
                                 onOpenLanguagePicker = { showLanguageSheet = true },
                             )
+                        }
+                        if (discoverState.isOfflineData) {
+                            item(key = "discover_offline_data_banner_empty") {
+                                DiscoverOfflineDataBanner(
+                                    isRetrying = discoverState.isRetrying,
+                                    onRetry = onRetry,
+                                )
+                            }
                         }
                         item {
                             CineEmptyState(
@@ -340,6 +424,15 @@ fun DiscoverScreen(
                                 hasLanguages = languageChips.isNotEmpty(),
                                 onOpenLanguagePicker = { showLanguageSheet = true },
                             )
+                        }
+
+                        if (discoverState.isOfflineData) {
+                            item(span = { GridItemSpan(maxLineSpan) }, key = "discover_offline_data_banner") {
+                                DiscoverOfflineDataBanner(
+                                    isRetrying = discoverState.isRetrying,
+                                    onRetry = onRetry,
+                                )
+                            }
                         }
 
                         // Compact single-row "What to watch today?" card (shown once at top)
@@ -864,3 +957,82 @@ private fun DiscoverSectionHeader(
         trailing?.invoke()
     }
 }
+
+@Composable
+private fun DiscoverOfflineDataBanner(
+    isRetrying: Boolean,
+    onRetry: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Surface(
+        color = CineElevated,
+        shape = RoundedCornerShape(12.dp),
+        border = BorderStroke(1.dp, CineGold.copy(alpha = 0.5f)),
+        modifier = modifier
+            .fillMaxWidth()
+            .testTag("discover_offline_data_banner"),
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(start = 12.dp, end = 6.dp, top = 4.dp, bottom = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween,
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier.weight(1f),
+            ) {
+                Icon(
+                    imageVector = Icons.Rounded.CloudOff,
+                    contentDescription = null,
+                    tint = CineGold,
+                    modifier = Modifier.size(18.dp),
+                )
+                Text(
+                    text = stringResource(R.string.discover_offline_data_label),
+                    style = MaterialTheme.typography.labelLarge,
+                    color = CineGold,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            TextButton(
+                onClick = onRetry,
+                enabled = !isRetrying,
+                modifier = Modifier
+                    .heightIn(min = 48.dp)
+                    .testTag("discover_offline_retry_button"),
+            ) {
+                if (isRetrying) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(16.dp),
+                        strokeWidth = 2.dp,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = stringResource(R.string.discover_retrying_button),
+                        maxLines = 1,
+                        softWrap = false,
+                    )
+                } else {
+                    Icon(
+                        imageVector = Icons.Rounded.Refresh,
+                        contentDescription = null,
+                        modifier = Modifier.size(16.dp),
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text(
+                        text = stringResource(R.string.discover_retry_button),
+                        maxLines = 1,
+                        softWrap = false,
+                    )
+                }
+            }
+        }
+    }
+}
+

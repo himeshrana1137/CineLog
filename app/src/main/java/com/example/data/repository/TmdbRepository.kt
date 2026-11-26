@@ -1,6 +1,7 @@
 package com.example.data.repository
 
 import android.content.Context
+import android.util.Log
 import com.example.BuildConfig
 import com.example.data.model.MediaImages
 import com.example.data.model.MediaType
@@ -9,13 +10,18 @@ import com.example.data.model.MovieSummary
 import com.example.data.model.TvSeasonDetail
 import com.example.data.model.WatchProvidersRegion
 import com.example.data.remote.TmdbApiService
+import com.example.data.remote.TmdbNetworkClient
 import com.squareup.moshi.Moshi
 import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
+import okhttp3.Request
 import okhttp3.logging.HttpLoggingInterceptor
 import org.json.JSONObject
 import retrofit2.HttpException
@@ -29,6 +35,11 @@ class TmdbApiKeyMissingException : Exception(
     "TMDB API key is not configured. Add TMDB_API_KEY in the AI Studio Secrets panel and rebuild."
 )
 
+class TmdbHttpStatusException(
+    val statusCode: Int,
+    message: String,
+) : Exception(message)
+
 private enum class AuthMode {
     API_KEY,
     BEARER_TOKEN,
@@ -38,6 +49,9 @@ class TmdbRepository internal constructor(
     private val apiService: TmdbApiService,
     private val apiKeyProvider: () -> String,
     private val loginPosterCache: LoginPosterCache,
+    private val httpClient: OkHttpClient = TmdbNetworkClient.sharedOkHttpClient,
+    private val retryDelaysMs: List<Long> = DEFAULT_RETRY_DELAYS_MS,
+    private val delayProvider: suspend (Long) -> Unit = { delay(it) },
 ) {
     constructor(
         apiService: TmdbApiService = defaultApiService(),
@@ -46,6 +60,7 @@ class TmdbRepository internal constructor(
         apiService = apiService,
         apiKeyProvider = apiKeyProvider,
         loginPosterCache = LoginPosterCache(),
+        httpClient = TmdbNetworkClient.sharedOkHttpClient,
     )
 
     private val tvFullDetailsCache = ConcurrentHashMap<Long, MovieDetails>()
@@ -552,41 +567,219 @@ class TmdbRepository internal constructor(
             }.toIndiaProviders()
         }
 
+    /**
+     * Lightweight reachability check for `api.themoviedb.org` using the shared DoH [OkHttpClient].
+     */
+    suspend fun checkTmdbApiConnection(): Result<Unit> = withContext(Dispatchers.IO) {
+        val credentialPair = resolveCredential()
+        try {
+            if (credentialPair == null) {
+                val request = Request.Builder()
+                    .url("${BASE_URL}configuration")
+                    .get()
+                    .build()
+                httpClient.newCall(request).execute().use { response ->
+                    // Even without a key, reaching TMDB cleanly (401/200) distinguishes missing key from DNS failure
+                    if (response.isSuccessful) {
+                        return@withContext Result.success(Unit)
+                    }
+                    val ex = TmdbApiKeyMissingException()
+                    Log.e(TAG, "TMDB API check failed: ${ex::class.java.name}: ${ex.message}", ex)
+                    return@withContext Result.failure(ex)
+                }
+            }
+
+            val (credential, primaryMode) = credentialPair
+            val primaryRequest = buildConfigProbeRequest(credential, primaryMode)
+            httpClient.newCall(primaryRequest).execute().use { response ->
+                if (response.isSuccessful) {
+                    return@withContext Result.success(Unit)
+                }
+                if (response.code == 401) {
+                    val fallbackMode = if (primaryMode == AuthMode.API_KEY) {
+                        AuthMode.BEARER_TOKEN
+                    } else {
+                        AuthMode.API_KEY
+                    }
+                    val fallbackRequest = buildConfigProbeRequest(credential, fallbackMode)
+                    httpClient.newCall(fallbackRequest).execute().use { fallbackResponse ->
+                        if (fallbackResponse.isSuccessful) {
+                            return@withContext Result.success(Unit)
+                        }
+                        val ex = TmdbHttpStatusException(
+                            statusCode = fallbackResponse.code,
+                            message = "HTTP ${fallbackResponse.code} ${fallbackResponse.message}".trim(),
+                        )
+                        Log.e(TAG, "TMDB API check failed: ${ex::class.java.name}: ${ex.message}", ex)
+                        return@withContext Result.failure(ex)
+                    }
+                }
+                val ex = TmdbHttpStatusException(
+                    statusCode = response.code,
+                    message = "HTTP ${response.code} ${response.message}".trim(),
+                )
+                Log.e(TAG, "TMDB API check failed: ${ex::class.java.name}: ${ex.message}", ex)
+                Result.failure(ex)
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Log.e(TAG, "TMDB API check failed: ${e::class.java.name}: ${e.message}", e)
+            Result.failure(e)
+        }
+    }
+
+    /**
+     * Lightweight reachability check for `image.tmdb.org` using the shared DoH [OkHttpClient].
+     */
+    suspend fun checkTmdbImageConnection(): Result<Unit> = withContext(Dispatchers.IO) {
+        val request = Request.Builder()
+            .url(TMDB_IMAGE_PROBE_URL)
+            .head()
+            .build()
+        try {
+            httpClient.newCall(request).execute().use { response ->
+                // Any non-5xx response from image.tmdb.org proves DoH DNS + TLS + edge reachability
+                if (response.isSuccessful || response.code in 300..499) {
+                    Result.success(Unit)
+                } else {
+                    val ex = TmdbHttpStatusException(
+                        statusCode = response.code,
+                        message = "HTTP ${response.code} ${response.message}".trim(),
+                    )
+                    Log.e(TAG, "TMDB image host check failed: ${ex::class.java.name}: ${ex.message}", ex)
+                    Result.failure(ex)
+                }
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Log.e(TAG, "TMDB image host check failed: ${e::class.java.name}: ${e.message}", e)
+            Result.failure(e)
+        }
+    }
+
+    private fun buildConfigProbeRequest(credential: String, mode: AuthMode): Request {
+        val builder = Request.Builder()
+        return when (mode) {
+            AuthMode.API_KEY -> builder
+                .url("${BASE_URL}configuration?api_key=$credential")
+                .get()
+                .build()
+            AuthMode.BEARER_TOKEN -> builder
+                .url("${BASE_URL}configuration")
+                .header("Authorization", "Bearer $credential")
+                .get()
+                .build()
+        }
+    }
+
     private suspend fun <T> runTmdbCallWithFallback(
         block: suspend (credential: String, mode: AuthMode) -> T,
     ): Result<T> {
         val (credential, primaryMode) = resolveCredential()
             ?: return Result.failure(TmdbApiKeyMissingException())
 
-        return try {
-            Result.success(block(credential, primaryMode))
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: HttpException) {
-            if (e.code() == 401) {
-                val fallbackMode = if (primaryMode == AuthMode.API_KEY) {
-                    AuthMode.BEARER_TOKEN
-                } else {
-                    AuthMode.API_KEY
+        val totalAttempts = retryDelaysMs.size + 1
+        var lastError: Throwable? = null
+
+        for (attempt in 0 until totalAttempts) {
+            try {
+                return Result.success(block(credential, primaryMode))
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: HttpException) {
+                if (e.code() == 401) {
+                    val fallbackMode = if (primaryMode == AuthMode.API_KEY) {
+                        AuthMode.BEARER_TOKEN
+                    } else {
+                        AuthMode.API_KEY
+                    }
+                    try {
+                        return Result.success(block(credential, fallbackMode))
+                    } catch (fallbackEx: CancellationException) {
+                        throw fallbackEx
+                    } catch (fallbackEx: HttpException) {
+                        Log.e(
+                            TAG,
+                            "TMDB fallback HTTP error (${fallbackEx.code()}): ${fallbackEx::class.java.name}: ${fallbackEx.message}",
+                            fallbackEx,
+                        )
+                        return Result.failure(Exception(formatHttpError(fallbackEx), fallbackEx))
+                    } catch (fallbackEx: IOException) {
+                        Log.e(
+                            TAG,
+                            "TMDB fallback IO error (attempt ${attempt + 1}/$totalAttempts): ${fallbackEx::class.java.name}: ${fallbackEx.message}",
+                            fallbackEx,
+                        )
+                        lastError = fallbackEx
+                        if (attempt < retryDelaysMs.size) {
+                            delayProvider(retryDelaysMs[attempt])
+                            continue
+                        }
+                        return Result.failure(
+                            Exception(
+                                "Could not reach TMDB (${fallbackEx::class.java.simpleName}): ${fallbackEx.message ?: "Network error"}",
+                                fallbackEx,
+                            )
+                        )
+                    } catch (fallbackEx: Exception) {
+                        Log.e(
+                            TAG,
+                            "TMDB fallback error: ${fallbackEx::class.java.name}: ${fallbackEx.message}",
+                            fallbackEx,
+                        )
+                        return Result.failure(Exception(fallbackEx.localizedMessage ?: "Failed to reach TMDB.", fallbackEx))
+                    }
                 }
-                try {
-                    return Result.success(block(credential, fallbackMode))
-                } catch (fallbackEx: CancellationException) {
-                    throw fallbackEx
-                } catch (fallbackEx: HttpException) {
-                    return Result.failure(Exception(formatHttpError(fallbackEx), fallbackEx))
-                } catch (fallbackEx: IOException) {
-                    return Result.failure(
-                        Exception("No internet connection or TMDB unreachable. Please check your network.", fallbackEx)
+
+                val isRetryableHttp = e.code() == 429 || e.code() >= 500
+                Log.e(
+                    TAG,
+                    "TMDB HTTP error ${e.code()} (attempt ${attempt + 1}/$totalAttempts): ${e::class.java.name}: ${e.message}",
+                    e,
+                )
+                lastError = e
+                if (isRetryableHttp && attempt < retryDelaysMs.size) {
+                    delayProvider(retryDelaysMs[attempt])
+                    continue
+                }
+                return Result.failure(Exception(formatHttpError(e), e))
+            } catch (e: IOException) {
+                Log.e(
+                    TAG,
+                    "TMDB network error (attempt ${attempt + 1}/$totalAttempts): ${e::class.java.name}: ${e.message}",
+                    e,
+                )
+                lastError = e
+                if (attempt < retryDelaysMs.size) {
+                    delayProvider(retryDelaysMs[attempt])
+                    continue
+                }
+                return Result.failure(
+                    Exception(
+                        "Could not reach TMDB (${e::class.java.simpleName}): ${e.message ?: "Network error"}",
+                        e,
                     )
-                }
+                )
+            } catch (e: Exception) {
+                Log.e(
+                    TAG,
+                    "TMDB unexpected error: ${e::class.java.name}: ${e.message}",
+                    e,
+                )
+                return Result.failure(Exception(e.localizedMessage ?: "Failed to reach TMDB.", e))
             }
-            Result.failure(Exception(formatHttpError(e), e))
-        } catch (e: IOException) {
-            Result.failure(Exception("No internet connection or TMDB unreachable. Please check your network.", e))
-        } catch (e: Exception) {
-            Result.failure(Exception(e.localizedMessage ?: "Failed to reach TMDB.", e))
         }
+
+        val finalCause = lastError
+        return Result.failure(
+            Exception(
+                finalCause?.let { "${it::class.java.simpleName}: ${it.message ?: "Network error"}" }
+                    ?: "Failed to reach TMDB.",
+                finalCause,
+            )
+        )
     }
 
     private fun formatHttpError(e: HttpException): String {
@@ -618,9 +811,11 @@ class TmdbRepository internal constructor(
     }
 
     companion object {
+        private const val TAG = "TmdbRepository"
         private const val BASE_URL = "https://api.themoviedb.org/3/"
         private const val PLACEHOLDER_KEY = "MY_TMDB_API_KEY"
         private const val TMDB_IMAGE_BASE_URL = "https://image.tmdb.org/t/p/"
+        private const val TMDB_IMAGE_PROBE_URL = "https://image.tmdb.org/t/p/w92/wwemzKWzjKYJFfCeiB57q3r4Bcm.png"
         private const val POSTER_SIZE_SLIDESHOW = "w780"
         private const val POSTER_SIZE_WALL = "w342"
         private const val MARVEL_STUDIOS_COMPANY_ID = "420"
@@ -629,6 +824,7 @@ class TmdbRepository internal constructor(
         private const val WALL_POSTER_TARGET_COUNT = 30
         private const val SLIDESHOW_MIN_MARVEL_THRESHOLD = 6
         private const val WALL_MIN_MARVEL_THRESHOLD = 9
+        internal val DEFAULT_RETRY_DELAYS_MS: List<Long> = listOf(400L, 900L)
 
         internal fun defaultPosterCount(style: LoginBackgroundStyle): Int = when (style) {
             LoginBackgroundStyle.SLIDESHOW -> SLIDESHOW_POSTER_TARGET_COUNT
@@ -649,10 +845,10 @@ class TmdbRepository internal constructor(
             val logging = HttpLoggingInterceptor().apply {
                 level = HttpLoggingInterceptor.Level.BASIC
             }
-            val client = OkHttpClient.Builder()
+            val client = TmdbNetworkClient.sharedOkHttpClient.newBuilder()
                 .addInterceptor(logging)
-                .connectTimeout(15, TimeUnit.SECONDS)
-                .readTimeout(15, TimeUnit.SECONDS)
+                .connectTimeout(TmdbNetworkClient.CONNECT_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+                .readTimeout(TmdbNetworkClient.READ_TIMEOUT_SECONDS, TimeUnit.SECONDS)
                 .build()
             val moshi = Moshi.Builder()
                 .addLast(KotlinJsonAdapterFactory())

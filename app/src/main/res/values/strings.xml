@@ -56,4 +56,12 @@
     <string name="sync_details_toggle">Details</string>
     <string name="sync_library_cd">Sync library</string>
     <string name="please_sign_in_again">Please sign in again</string>
+    <string name="discover_error_message">Could not reach TMDB. Check your internet and try again.</string>
+    <string name="discover_retry_button">Retry</string>
+    <string name="discover_retrying_button">Retrying…</string>
+    <string name="discover_offline_data_label">Offline data</string>
+    <string name="settings_connection_check_title">CONNECTION CHECK</string>
+    <string name="settings_connection_check_button">Connection check</string>
+    <string name="settings_connection_checking">Checking…</string>
+    <string name="settings_connection_ok">OK</string>
 </resources>
