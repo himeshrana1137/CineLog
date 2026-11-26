@@ -78,6 +78,8 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
+import kotlinx.coroutines.withTimeoutOrNull
+import java.net.SocketTimeoutException
 import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Locale
@@ -263,6 +265,9 @@ class CineLogViewModel(
     private val tokenRefresher: suspend (FirebaseUser) -> Unit = { user ->
         user.getIdToken(true).await()
     },
+    private val discoverDebounceMillis: Long = DEFAULT_DISCOVER_DEBOUNCE_MILLIS,
+    private val discoverOverallTimeoutMillis: Long = DEFAULT_DISCOVER_TIMEOUT_MILLIS,
+    isOnlineOverride: StateFlow<Boolean>? = null,
 ) : ViewModel() {
 
     private class StreamRetryTracker {
@@ -296,7 +301,7 @@ class CineLogViewModel(
     private val _diarySelectedDate = MutableStateFlow(todayIsoDate())
     val diarySelectedDate: StateFlow<String> = _diarySelectedDate.asStateFlow()
 
-    val isOnline: StateFlow<Boolean> = networkMonitor.isOnline
+    val isOnline: StateFlow<Boolean> = isOnlineOverride ?: networkMonitor.isOnline
 
     private val _searchQuery = MutableStateFlow("")
     val searchQuery: StateFlow<String> = _searchQuery.asStateFlow()
@@ -869,11 +874,11 @@ class CineLogViewModel(
         }
     }
 
-    // 500ms debounced online search across Movies & TV Shows via TMDB API
+    // Debounced online search across Movies & TV Shows via TMDB API (bounded by overall 10s limit)
     val discoverState: StateFlow<DiscoverUiState> = combine(
         _searchQuery
             .map { it.trim() }
-            .debounce(500L)
+            .debounce(discoverDebounceMillis)
             .distinctUntilChanged(),
         _discoverMediaFilter,
         _refreshTrigger,
@@ -883,6 +888,32 @@ class CineLogViewModel(
                 val requestKey = query to mediaFilter
                 val isRetryOfSameRequest = lastDiscoverRequestKey == requestKey
                 lastDiscoverRequestKey = requestKey
+
+                // Short-circuit immediately when offline so loading skeletons never spin unnecessarily
+                if (!isOnline.value) {
+                    val cached = lastSuccessfulDiscover
+                    if (cached != null) {
+                        emit(
+                            DiscoverUiState.Success(
+                                movies = cached.movies,
+                                isSearchResult = cached.isSearchResult,
+                                mediaFilter = cached.mediaFilter,
+                                isOfflineData = true,
+                                isRetrying = false,
+                            )
+                        )
+                    } else {
+                        emit(
+                            DiscoverUiState.Error(
+                                message = DISCOVER_ERROR_MESSAGE,
+                                technicalDetails = "No internet connection",
+                                isMissingApiKey = false,
+                                isRetrying = false,
+                            )
+                        )
+                    }
+                    return@flow
+                }
 
                 when (val current = latestDiscoverState) {
                     is DiscoverUiState.Error -> {
@@ -902,19 +933,24 @@ class CineLogViewModel(
                     is DiscoverUiState.Loading -> emit(DiscoverUiState.Loading)
                 }
 
-                val result = if (query.isBlank()) {
-                    when (mediaFilter) {
-                        DiscoverMediaFilter.ALL -> tmdbRepository.getTrendingAllMedia()
-                        DiscoverMediaFilter.MOVIES -> tmdbRepository.getTrendingMovies()
-                        DiscoverMediaFilter.TV_SHOWS -> tmdbRepository.getTrendingTvShows()
+                val result: Result<List<MovieSummary>> = withTimeoutOrNull(discoverOverallTimeoutMillis) {
+                    if (query.isBlank()) {
+                        when (mediaFilter) {
+                            DiscoverMediaFilter.ALL -> tmdbRepository.getTrendingAllMedia()
+                            DiscoverMediaFilter.MOVIES -> tmdbRepository.getTrendingMovies()
+                            DiscoverMediaFilter.TV_SHOWS -> tmdbRepository.getTrendingTvShows()
+                        }
+                    } else {
+                        when (mediaFilter) {
+                            DiscoverMediaFilter.ALL -> tmdbRepository.searchAllMedia(query)
+                            DiscoverMediaFilter.MOVIES -> tmdbRepository.searchMovies(query)
+                            DiscoverMediaFilter.TV_SHOWS -> tmdbRepository.searchTvShows(query)
+                        }
                     }
-                } else {
-                    when (mediaFilter) {
-                        DiscoverMediaFilter.ALL -> tmdbRepository.searchAllMedia(query)
-                        DiscoverMediaFilter.MOVIES -> tmdbRepository.searchMovies(query)
-                        DiscoverMediaFilter.TV_SHOWS -> tmdbRepository.searchTvShows(query)
-                    }
-                }
+                } ?: Result.failure(
+                    SocketTimeoutException("Discover load timed out after ${discoverOverallTimeoutMillis}ms")
+                )
+
                 result.fold(
                     onSuccess = { items ->
                         val isSearch = query.isNotBlank()
@@ -3420,6 +3456,8 @@ class CineLogViewModel(
     internal companion object {
         const val TAG = "CineLogVM"
         const val STOP_TIMEOUT_MILLIS = 5000L
+        const val DEFAULT_DISCOVER_DEBOUNCE_MILLIS = 500L
+        const val DEFAULT_DISCOVER_TIMEOUT_MILLIS = 10_000L
         const val DISCOVER_ERROR_MESSAGE = "Could not reach TMDB. Check your internet and try again."
     }
 }

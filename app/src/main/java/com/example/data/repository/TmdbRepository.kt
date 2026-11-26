@@ -14,12 +14,14 @@ import com.example.data.remote.TmdbNetworkClient
 import com.squareup.moshi.Moshi
 import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.logging.HttpLoggingInterceptor
@@ -28,6 +30,8 @@ import retrofit2.HttpException
 import retrofit2.Retrofit
 import retrofit2.converter.moshi.MoshiConverterFactory
 import java.io.IOException
+import java.net.SocketTimeoutException
+import java.net.UnknownHostException
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
 
@@ -52,6 +56,8 @@ class TmdbRepository internal constructor(
     private val httpClient: OkHttpClient = TmdbNetworkClient.sharedOkHttpClient,
     private val retryDelaysMs: List<Long> = DEFAULT_RETRY_DELAYS_MS,
     private val delayProvider: suspend (Long) -> Unit = { delay(it) },
+    private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
+    private val overallTimeoutMs: Long = DEFAULT_OVERALL_TIMEOUT_MS,
 ) {
     constructor(
         apiService: TmdbApiService = defaultApiService(),
@@ -570,7 +576,7 @@ class TmdbRepository internal constructor(
     /**
      * Lightweight reachability check for `api.themoviedb.org` using the shared DoH [OkHttpClient].
      */
-    suspend fun checkTmdbApiConnection(): Result<Unit> = withContext(Dispatchers.IO) {
+    suspend fun checkTmdbApiConnection(): Result<Unit> = withContext(ioDispatcher) {
         val credentialPair = resolveCredential()
         try {
             if (credentialPair == null) {
@@ -632,7 +638,7 @@ class TmdbRepository internal constructor(
     /**
      * Lightweight reachability check for `image.tmdb.org` using the shared DoH [OkHttpClient].
      */
-    suspend fun checkTmdbImageConnection(): Result<Unit> = withContext(Dispatchers.IO) {
+    suspend fun checkTmdbImageConnection(): Result<Unit> = withContext(ioDispatcher) {
         val request = Request.Builder()
             .url(TMDB_IMAGE_PROBE_URL)
             .head()
@@ -674,110 +680,129 @@ class TmdbRepository internal constructor(
         }
     }
 
+    private fun isUnknownHost(error: Throwable): Boolean =
+        generateSequence(error) { it.cause }.any { it is UnknownHostException }
+
     private suspend fun <T> runTmdbCallWithFallback(
         block: suspend (credential: String, mode: AuthMode) -> T,
     ): Result<T> {
         val (credential, primaryMode) = resolveCredential()
             ?: return Result.failure(TmdbApiKeyMissingException())
 
-        val totalAttempts = retryDelaysMs.size + 1
-        var lastError: Throwable? = null
+        val timedResult: Result<T>? = withTimeoutOrNull(overallTimeoutMs) {
+            val totalAttempts = retryDelaysMs.size + 1
+            var lastError: Throwable? = null
 
-        for (attempt in 0 until totalAttempts) {
-            try {
-                return Result.success(block(credential, primaryMode))
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: HttpException) {
-                if (e.code() == 401) {
-                    val fallbackMode = if (primaryMode == AuthMode.API_KEY) {
-                        AuthMode.BEARER_TOKEN
-                    } else {
-                        AuthMode.API_KEY
-                    }
-                    try {
-                        return Result.success(block(credential, fallbackMode))
-                    } catch (fallbackEx: CancellationException) {
-                        throw fallbackEx
-                    } catch (fallbackEx: HttpException) {
-                        Log.e(
-                            TAG,
-                            "TMDB fallback HTTP error (${fallbackEx.code()}): ${fallbackEx::class.java.name}: ${fallbackEx.message}",
-                            fallbackEx,
-                        )
-                        return Result.failure(Exception(formatHttpError(fallbackEx), fallbackEx))
-                    } catch (fallbackEx: IOException) {
-                        Log.e(
-                            TAG,
-                            "TMDB fallback IO error (attempt ${attempt + 1}/$totalAttempts): ${fallbackEx::class.java.name}: ${fallbackEx.message}",
-                            fallbackEx,
-                        )
-                        lastError = fallbackEx
-                        if (attempt < retryDelaysMs.size) {
-                            delayProvider(retryDelaysMs[attempt])
-                            continue
+            for (attempt in 0 until totalAttempts) {
+                try {
+                    return@withTimeoutOrNull Result.success(block(credential, primaryMode))
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: HttpException) {
+                    if (e.code() == 401) {
+                        val fallbackMode = if (primaryMode == AuthMode.API_KEY) {
+                            AuthMode.BEARER_TOKEN
+                        } else {
+                            AuthMode.API_KEY
                         }
-                        return Result.failure(
-                            Exception(
-                                "Could not reach TMDB (${fallbackEx::class.java.simpleName}): ${fallbackEx.message ?: "Network error"}",
+                        try {
+                            return@withTimeoutOrNull Result.success(block(credential, fallbackMode))
+                        } catch (fallbackEx: CancellationException) {
+                            throw fallbackEx
+                        } catch (fallbackEx: HttpException) {
+                            Log.e(
+                                TAG,
+                                "TMDB fallback HTTP error (${fallbackEx.code()}): ${fallbackEx::class.java.name}: ${fallbackEx.message}",
                                 fallbackEx,
                             )
-                        )
-                    } catch (fallbackEx: Exception) {
-                        Log.e(
-                            TAG,
-                            "TMDB fallback error: ${fallbackEx::class.java.name}: ${fallbackEx.message}",
-                            fallbackEx,
-                        )
-                        return Result.failure(Exception(fallbackEx.localizedMessage ?: "Failed to reach TMDB.", fallbackEx))
+                            return@withTimeoutOrNull Result.failure(Exception(formatHttpError(fallbackEx), fallbackEx))
+                        } catch (fallbackEx: IOException) {
+                            Log.e(
+                                TAG,
+                                "TMDB fallback IO error (attempt ${attempt + 1}/$totalAttempts): ${fallbackEx::class.java.name}: ${fallbackEx.message}",
+                                fallbackEx,
+                            )
+                            lastError = fallbackEx
+                            if (!isUnknownHost(fallbackEx) && attempt < retryDelaysMs.size) {
+                                delayProvider(retryDelaysMs[attempt])
+                                continue
+                            }
+                            return@withTimeoutOrNull Result.failure(
+                                Exception(
+                                    "Could not reach TMDB (${fallbackEx::class.java.simpleName}): ${fallbackEx.message ?: "Network error"}",
+                                    fallbackEx,
+                                )
+                            )
+                        } catch (fallbackEx: Exception) {
+                            Log.e(
+                                TAG,
+                                "TMDB fallback error: ${fallbackEx::class.java.name}: ${fallbackEx.message}",
+                                fallbackEx,
+                            )
+                            return@withTimeoutOrNull Result.failure(Exception(fallbackEx.localizedMessage ?: "Failed to reach TMDB.", fallbackEx))
+                        }
                     }
-                }
 
-                val isRetryableHttp = e.code() == 429 || e.code() >= 500
-                Log.e(
-                    TAG,
-                    "TMDB HTTP error ${e.code()} (attempt ${attempt + 1}/$totalAttempts): ${e::class.java.name}: ${e.message}",
-                    e,
-                )
-                lastError = e
-                if (isRetryableHttp && attempt < retryDelaysMs.size) {
-                    delayProvider(retryDelaysMs[attempt])
-                    continue
-                }
-                return Result.failure(Exception(formatHttpError(e), e))
-            } catch (e: IOException) {
-                Log.e(
-                    TAG,
-                    "TMDB network error (attempt ${attempt + 1}/$totalAttempts): ${e::class.java.name}: ${e.message}",
-                    e,
-                )
-                lastError = e
-                if (attempt < retryDelaysMs.size) {
-                    delayProvider(retryDelaysMs[attempt])
-                    continue
-                }
-                return Result.failure(
-                    Exception(
-                        "Could not reach TMDB (${e::class.java.simpleName}): ${e.message ?: "Network error"}",
+                    val isRetryableHttp = e.code() == 429 || e.code() >= 500
+                    Log.e(
+                        TAG,
+                        "TMDB HTTP error ${e.code()} (attempt ${attempt + 1}/$totalAttempts): ${e::class.java.name}: ${e.message}",
                         e,
                     )
-                )
-            } catch (e: Exception) {
-                Log.e(
-                    TAG,
-                    "TMDB unexpected error: ${e::class.java.name}: ${e.message}",
-                    e,
-                )
-                return Result.failure(Exception(e.localizedMessage ?: "Failed to reach TMDB.", e))
+                    lastError = e
+                    if (isRetryableHttp && attempt < retryDelaysMs.size) {
+                        delayProvider(retryDelaysMs[attempt])
+                        continue
+                    }
+                    return@withTimeoutOrNull Result.failure(Exception(formatHttpError(e), e))
+                } catch (e: IOException) {
+                    Log.e(
+                        TAG,
+                        "TMDB network error (attempt ${attempt + 1}/$totalAttempts): ${e::class.java.name}: ${e.message}",
+                        e,
+                    )
+                    lastError = e
+                    // Fail immediately on UnknownHostException (DoH + system DNS already exhausted)
+                    if (!isUnknownHost(e) && attempt < retryDelaysMs.size) {
+                        delayProvider(retryDelaysMs[attempt])
+                        continue
+                    }
+                    return@withTimeoutOrNull Result.failure(
+                        Exception(
+                            "Could not reach TMDB (${e::class.java.simpleName}): ${e.message ?: "Network error"}",
+                            e,
+                        )
+                    )
+                } catch (e: Exception) {
+                    Log.e(
+                        TAG,
+                        "TMDB unexpected error: ${e::class.java.name}: ${e.message}",
+                        e,
+                    )
+                    return@withTimeoutOrNull Result.failure(Exception(e.localizedMessage ?: "Failed to reach TMDB.", e))
+                }
             }
+
+            val finalCause = lastError
+            Result.failure(
+                Exception(
+                    finalCause?.let { "${it::class.java.simpleName}: ${it.message ?: "Network error"}" }
+                        ?: "Failed to reach TMDB.",
+                    finalCause,
+                )
+            )
         }
 
-        val finalCause = lastError
+        if (timedResult != null) {
+            return timedResult
+        }
+
+        val timeoutException = SocketTimeoutException("TMDB request timed out after ${overallTimeoutMs}ms")
+        Log.e(TAG, "TMDB overall timeout: ${timeoutException::class.java.name}: ${timeoutException.message}", timeoutException)
         return Result.failure(
             Exception(
-                finalCause?.let { "${it::class.java.simpleName}: ${it.message ?: "Network error"}" }
-                    ?: "Failed to reach TMDB.",
-                finalCause,
+                "Could not reach TMDB (${timeoutException::class.java.simpleName}): ${timeoutException.message}",
+                timeoutException,
             )
         )
     }
@@ -824,7 +849,8 @@ class TmdbRepository internal constructor(
         private const val WALL_POSTER_TARGET_COUNT = 30
         private const val SLIDESHOW_MIN_MARVEL_THRESHOLD = 6
         private const val WALL_MIN_MARVEL_THRESHOLD = 9
-        internal val DEFAULT_RETRY_DELAYS_MS: List<Long> = listOf(400L, 900L)
+        internal val DEFAULT_RETRY_DELAYS_MS: List<Long> = listOf(250L, 500L)
+        internal const val DEFAULT_OVERALL_TIMEOUT_MS: Long = 10_000L
 
         internal fun defaultPosterCount(style: LoginBackgroundStyle): Int = when (style) {
             LoginBackgroundStyle.SLIDESHOW -> SLIDESHOW_POSTER_TARGET_COUNT
@@ -849,6 +875,7 @@ class TmdbRepository internal constructor(
                 .addInterceptor(logging)
                 .connectTimeout(TmdbNetworkClient.CONNECT_TIMEOUT_SECONDS, TimeUnit.SECONDS)
                 .readTimeout(TmdbNetworkClient.READ_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+                .callTimeout(TmdbNetworkClient.CALL_TIMEOUT_SECONDS, TimeUnit.SECONDS)
                 .build()
             val moshi = Moshi.Builder()
                 .addLast(KotlinJsonAdapterFactory())

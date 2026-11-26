@@ -131,17 +131,23 @@ class TmdbDohDns internal constructor(
 
 /**
  * Provides one shared [OkHttpClient] configured with TMDB-scoped DNS-over-HTTPS
- * and bounded timeouts (10s connect, 15s read) for both Retrofit TMDB requests
- * and Coil image loading (`image.tmdb.org`).
+ * and bounded timeouts (4s connect, 8s read, 9s overall call) for both Retrofit
+ * TMDB requests and Coil image loading (`image.tmdb.org`).
  */
 object TmdbNetworkClient {
-    const val CONNECT_TIMEOUT_SECONDS = 10L
-    const val READ_TIMEOUT_SECONDS = 15L
+    const val CONNECT_TIMEOUT_SECONDS = 4L
+    const val READ_TIMEOUT_SECONDS = 8L
+    const val CALL_TIMEOUT_SECONDS = 9L
+
+    private const val DOH_CONNECT_TIMEOUT_SECONDS = 2L
+    private const val DOH_READ_TIMEOUT_SECONDS = 2L
+    private const val DOH_CALL_TIMEOUT_SECONDS = 3L
 
     private val bootstrapClient: OkHttpClient by lazy {
         OkHttpClient.Builder()
-            .connectTimeout(CONNECT_TIMEOUT_SECONDS, TimeUnit.SECONDS)
-            .readTimeout(READ_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+            .connectTimeout(DOH_CONNECT_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+            .readTimeout(DOH_READ_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+            .callTimeout(DOH_CALL_TIMEOUT_SECONDS, TimeUnit.SECONDS)
             .build()
     }
 
@@ -154,6 +160,7 @@ object TmdbNetworkClient {
             .dns(tmdbDohDns)
             .connectTimeout(CONNECT_TIMEOUT_SECONDS, TimeUnit.SECONDS)
             .readTimeout(READ_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+            .callTimeout(CALL_TIMEOUT_SECONDS, TimeUnit.SECONDS)
             .build()
     }
 }
