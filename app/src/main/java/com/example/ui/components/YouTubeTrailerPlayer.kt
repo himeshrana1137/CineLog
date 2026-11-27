@@ -52,8 +52,7 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import coil.compose.AsyncImage
 import com.example.data.model.MediaVideo
-import com.example.ui.theme.CineElevated
-import com.example.ui.theme.CineObsidian
+import com.example.ui.theme.CineTheme
 import com.pierfrancescosoffritti.androidyoutubeplayer.core.player.PlayerConstants
 import com.pierfrancescosoffritti.androidyoutubeplayer.core.player.YouTubePlayer
 import com.pierfrancescosoffritti.androidyoutubeplayer.core.player.listeners.AbstractYouTubePlayerListener
@@ -116,7 +115,7 @@ fun YouTubeTrailerPlayer(
         }
 
         Surface(
-            color = CineElevated,
+            color = MaterialTheme.colorScheme.surfaceVariant,
             shape = MaterialTheme.shapes.medium,
             border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
             modifier = Modifier
@@ -150,8 +149,8 @@ fun YouTubeTrailerPlayer(
                             .background(
                                 Brush.verticalGradient(
                                     colors = listOf(
-                                        CineObsidian.copy(alpha = 0.25f),
-                                        CineObsidian.copy(alpha = 0.78f),
+                                        CineTheme.extraColors.posterOverlayScrim.copy(alpha = 0.25f),
+                                        CineTheme.extraColors.posterOverlayScrim.copy(alpha = 0.78f),
                                     )
                                 )
                             )
@@ -186,7 +185,7 @@ fun YouTubeTrailerPlayer(
                         Text(
                             text = trailer.name.ifBlank { "Watch Trailer" },
                             style = MaterialTheme.typography.labelLarge,
-                            color = Color.White,
+                            color = CineTheme.extraColors.posterOverlayContent,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                         )
@@ -194,7 +193,7 @@ fun YouTubeTrailerPlayer(
                             Text(
                                 text = "Embedded player unavailable — tap to open in YouTube",
                                 style = MaterialTheme.typography.labelMedium,
-                                color = Color.White.copy(alpha = 0.85f),
+                                color = CineTheme.extraColors.posterOverlayContent.copy(alpha = 0.85f),
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
                             )

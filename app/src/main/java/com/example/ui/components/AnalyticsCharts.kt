@@ -62,10 +62,7 @@ import com.example.data.model.ChartPoint
 import com.example.data.model.ChartSlice
 import com.example.data.model.CineStatsSummary
 import com.example.data.model.StatsMediaFilter
-import com.example.ui.theme.CineElevated
-import com.example.ui.theme.CineEmerald
-import com.example.ui.theme.CineGold
-import com.example.ui.theme.CineSurfaceHigh
+import com.example.ui.theme.CineTheme
 import kotlin.math.PI
 import kotlin.math.atan2
 import kotlin.math.hypot
@@ -80,17 +77,10 @@ fun GenreAnalyticsSection(
     modifier: Modifier = Modifier,
 ) {
     val primary = MaterialTheme.colorScheme.primary
+    val extraColors = CineTheme.extraColors
     val nounUpper = mediaFilter.pluralNoun.uppercase()
-    val chartPalette = remember(primary) {
-        listOf(
-            primary,
-            CineGold,
-            CineEmerald,
-            Color(0xFF38BDF8),
-            Color(0xFFA855F7),
-            Color(0xFFFB7185),
-            Color(0xFF94A3B8),
-        )
+    val chartPalette = remember(primary, extraColors.chartPalette) {
+        listOf(primary) + extraColors.chartPalette
     }
 
     Column(
@@ -165,7 +155,7 @@ fun GenreAnalyticsSection(
             } else {
                 VerticalBarChart(
                     points = stats.userRatingDistribution,
-                    barColor = CineGold,
+                    barColor = extraColors.gold,
                 )
             }
         }
@@ -378,7 +368,7 @@ private fun GenrePieChart(
                             .fillMaxWidth()
                             .clip(RoundedCornerShape(8.dp))
                             .background(
-                                if (isSelected) CineElevated else Color.Transparent
+                                if (isSelected) MaterialTheme.colorScheme.surfaceVariant else Color.Transparent
                             )
                             .clickable {
                                 selectedSliceIndex = if (selectedSliceIndex == index) -1 else index
@@ -423,7 +413,7 @@ private fun GenrePieChart(
             if (selected != null) {
                 val pct = (selected.percentage * 100f).roundToInt()
                 Surface(
-                    color = CineElevated,
+                    color = MaterialTheme.colorScheme.surfaceVariant,
                     shape = RoundedCornerShape(10.dp),
                     border = BorderStroke(1.dp, palette[selectedSliceIndex % palette.size].copy(alpha = 0.6f)),
                     modifier = Modifier.fillMaxWidth(),
@@ -548,7 +538,7 @@ private fun VerticalBarChart(
                                                 .clip(RoundedCornerShape(topStart = 6.dp, topEnd = 6.dp, bottomStart = 3.dp, bottomEnd = 3.dp))
                                                 .background(
                                                     when {
-                                                        pt.count == 0 -> CineSurfaceHigh
+                                                        pt.count == 0 -> MaterialTheme.colorScheme.surfaceContainerHigh
                                                         isSelected -> barColor
                                                         else -> barColor.copy(alpha = 0.88f)
                                                     }
@@ -581,7 +571,7 @@ private fun VerticalBarChart(
             val pt = points.getOrNull(selectedIdx)
             if (pt != null) {
                 Surface(
-                    color = CineElevated,
+                    color = MaterialTheme.colorScheme.surfaceVariant,
                     shape = RoundedCornerShape(10.dp),
                     border = BorderStroke(1.dp, barColor.copy(alpha = 0.55f)),
                     modifier = Modifier.fillMaxWidth(),
@@ -605,7 +595,7 @@ private fun MonthlyLineChart(
 ) {
     val maxVal = points.maxOfOrNull { it.count }?.coerceAtLeast(1) ?: 1
     val gridColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.6f)
-    val pointCenterColor = CineElevated
+    val pointCenterColor = MaterialTheme.colorScheme.surfaceVariant
     var selectedIdx by remember(points) { mutableIntStateOf(-1) }
     val revealAnim = remember(points) { Animatable(0f) }
 
@@ -756,7 +746,7 @@ private fun MonthlyLineChart(
             val pt = points.getOrNull(selectedIdx)
             if (pt != null) {
                 Surface(
-                    color = CineElevated,
+                    color = MaterialTheme.colorScheme.surfaceVariant,
                     shape = RoundedCornerShape(10.dp),
                     border = BorderStroke(1.dp, lineColor.copy(alpha = 0.55f)),
                     modifier = Modifier.fillMaxWidth(),

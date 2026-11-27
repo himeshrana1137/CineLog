@@ -50,10 +50,12 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.material3.Surface
 import com.example.ui.theme.CineBrandFont
 import com.example.ui.theme.CineLogTheme
 import com.example.ui.theme.CineLogoGradientBottom
 import com.example.ui.theme.CineLogoGradientTop
+import com.example.ui.theme.ThemeMode
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -371,10 +373,22 @@ private fun CineLogLogoPreview48() {
     }
 }
 
+@Preview(name = "CineLog Logo 48dp - Light", showBackground = true, backgroundColor = 0xFFF7F7FA)
+@Composable
+private fun CineLogLogoPreview48Light() {
+    CineLogTheme(themeMode = ThemeMode.LIGHT) {
+        Surface(color = MaterialTheme.colorScheme.background) {
+            Box(modifier = Modifier.padding(16.dp)) {
+                CineLogLogo(size = 48.dp, animated = false)
+            }
+        }
+    }
+}
+
 @Preview(name = "CineLog Logo 96dp", showBackground = true, backgroundColor = 0xFF0B0B0F)
 @Composable
 private fun CineLogLogoPreview96() {
-    CineLogTheme {
+    CineLogTheme(themeMode = ThemeMode.DARK) {
         Box(modifier = Modifier.padding(20.dp)) {
             CineLogLogo(
                 size = 96.dp,
@@ -382,6 +396,23 @@ private fun CineLogLogoPreview96() {
                 layout = CineLogLogoLayout.Vertical,
                 showGlow = true,
             )
+        }
+    }
+}
+
+@Preview(name = "CineLog Logo 96dp - Light", showBackground = true, backgroundColor = 0xFFF7F7FA)
+@Composable
+private fun CineLogLogoPreview96Light() {
+    CineLogTheme(themeMode = ThemeMode.LIGHT) {
+        Surface(color = MaterialTheme.colorScheme.background) {
+            Box(modifier = Modifier.padding(20.dp)) {
+                CineLogLogo(
+                    size = 96.dp,
+                    animated = false,
+                    layout = CineLogLogoLayout.Vertical,
+                    showGlow = true,
+                )
+            }
         }
     }
 }

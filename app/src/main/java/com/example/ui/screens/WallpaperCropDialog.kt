@@ -66,7 +66,9 @@ import androidx.compose.ui.window.DialogProperties
 import com.example.data.model.TmdbImageItem
 import com.example.ui.theme.CineCharcoal
 import com.example.ui.theme.CineElevated
+import com.example.ui.theme.CineLogTheme
 import com.example.ui.theme.CineObsidian
+import com.example.ui.theme.CineTheme
 import com.example.util.MediaSaver
 import kotlinx.coroutines.launch
 
@@ -129,6 +131,9 @@ fun WallpaperCropDialog(
         onDismissRequest = onDismiss,
         properties = DialogProperties(usePlatformDefaultWidth = false),
     ) {
+        val accent = MaterialTheme.colorScheme.primary
+        val wrapDark = !CineTheme.extraColors.isDark
+        val dialogBody: @Composable () -> Unit = {
         Surface(
             color = CineObsidian,
             contentColor = MaterialTheme.colorScheme.onBackground,
@@ -438,6 +443,12 @@ fun WallpaperCropDialog(
                     }
                 }
             }
+        }
+        }
+        if (wrapDark) {
+            CineLogTheme(accentColor = accent, forceDark = true, content = dialogBody)
+        } else {
+            dialogBody()
         }
     }
 }

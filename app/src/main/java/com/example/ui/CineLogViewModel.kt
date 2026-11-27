@@ -40,6 +40,7 @@ import com.example.data.repository.TvProgressRepository
 import com.example.data.repository.UserSettingsRepository
 import com.example.data.repository.WatchedMovieRepository
 import com.example.data.repository.WatchlistRepository
+import com.example.ui.theme.ThemeMode
 import retrofit2.HttpException
 import com.example.util.ImportCandidateRow
 import com.example.util.ImportExportHelper
@@ -374,6 +375,8 @@ class CineLogViewModel(
 
     private val _accentPreference = MutableStateFlow(settingsRepository.loadLocalAccent())
     val accentPreference: StateFlow<LocalAccentPreference> = _accentPreference.asStateFlow()
+
+    val themeMode: StateFlow<ThemeMode> = settingsRepository.themeMode
 
     private val _tvMigrationCompleted = MutableStateFlow<Boolean?>(null)
     private var tvMigrationStartedThisSession = false
@@ -3331,6 +3334,12 @@ class CineLogViewModel(
 
     fun notifyMessage(message: String) {
         _snackbarMessages.tryEmit(message)
+    }
+
+    fun setThemeMode(mode: ThemeMode) {
+        viewModelScope.launch {
+            settingsRepository.setThemeMode(mode)
+        }
     }
 
     fun selectAccentPreset(preset: AccentPreset) {

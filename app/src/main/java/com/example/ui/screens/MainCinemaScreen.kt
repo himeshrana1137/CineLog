@@ -102,8 +102,6 @@ import com.example.ui.WatchedSubTab
 import com.example.ui.components.CineTopNavbar
 import com.example.ui.components.OfflineModeBanner
 import com.example.ui.components.formatGoogleProfilePhotoUrl
-import com.example.ui.theme.CineCharcoal
-import com.example.ui.theme.CineElevated
 import com.example.util.NetworkMonitor
 import com.google.firebase.Firebase
 import com.google.firebase.auth.FirebaseAuth
@@ -178,7 +176,12 @@ fun MainCinemaScreen(
                     tvProgressRepository = TvProgressRepository(db, auth),
                     watchlistRepository = WatchlistRepository(db, auth),
                     customListRepository = CustomListRepository(db, auth),
-                    settingsRepository = UserSettingsRepository(db = db, auth = auth, prefs = settingsPrefs),
+                    settingsRepository = UserSettingsRepository(
+                        db = db,
+                        auth = auth,
+                        prefs = settingsPrefs,
+                        appContext = app,
+                    ),
                     networkMonitor = NetworkMonitor(app),
                     currentUserId = currentUser.uid,
                     auth = auth,
@@ -228,6 +231,7 @@ fun MainCinemaScreen(
     val pendingToggleKeys by viewModel.pendingToggleKeys.collectAsStateWithLifecycle()
     val pendingWatchlistKeys by viewModel.pendingWatchlistKeys.collectAsStateWithLifecycle()
     val accentPreference by viewModel.accentPreference.collectAsStateWithLifecycle()
+    val themeMode by viewModel.themeMode.collectAsStateWithLifecycle()
     val movieModal by viewModel.movieModal.collectAsStateWithLifecycle()
     val modalTvSeasons by viewModel.modalTvSeasons.collectAsStateWithLifecycle()
     val seasonEpisodesStates by viewModel.seasonEpisodesStates.collectAsStateWithLifecycle()
@@ -416,7 +420,7 @@ fun MainCinemaScreen(
                             val selectedIndex = NAV_TABS.indexOfFirst { it.tab == selectedTab }.coerceAtLeast(0)
                             PrimaryTabRow(
                                 selectedTabIndex = selectedIndex,
-                                containerColor = CineCharcoal,
+                                containerColor = MaterialTheme.colorScheme.surface,
                                 contentColor = MaterialTheme.colorScheme.primary,
                                 modifier = Modifier.fillMaxWidth(),
                             ) {
@@ -470,7 +474,7 @@ fun MainCinemaScreen(
                     ) { data ->
                         Snackbar(
                             snackbarData = data,
-                            containerColor = CineElevated,
+                            containerColor = MaterialTheme.colorScheme.surfaceVariant,
                             contentColor = MaterialTheme.colorScheme.onSurface,
                             actionColor = MaterialTheme.colorScheme.primary,
                         )
@@ -643,9 +647,11 @@ fun MainCinemaScreen(
                                 userEmail = currentUser.email,
                                 userPhotoUrl = photoUrl,
                                 isOnline = isOnline,
+                                themeMode = themeMode,
                                 accentPreference = accentPreference,
                                 itemsMissingMetadataCount = statsSummary.itemsMissingMetadataCount,
                                 migrationState = migrationState,
+                                onSelectThemeMode = viewModel::setThemeMode,
                                 onSelectPreset = viewModel::selectAccentPreset,
                                 onApplyCustomHex = viewModel::saveCustomAccentHex,
                                 onRunMigration = viewModel::runOldDataMigration,
@@ -848,7 +854,7 @@ private fun CineCompactBottomBar(
     modifier: Modifier = Modifier,
 ) {
     Surface(
-        color = CineCharcoal,
+        color = MaterialTheme.colorScheme.surface,
         contentColor = MaterialTheme.colorScheme.onSurface,
         tonalElevation = 4.dp,
         modifier = modifier.fillMaxWidth(),

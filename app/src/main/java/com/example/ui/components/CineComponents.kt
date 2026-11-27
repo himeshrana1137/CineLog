@@ -121,14 +121,10 @@ import com.example.R
 import com.example.data.model.LanguageChipCount
 import com.example.data.model.MovieSummary
 import com.example.data.model.WatchProvidersRegion
-import com.example.ui.theme.CineCharcoal
-import com.example.ui.theme.CineDisplayFont
-import com.example.ui.theme.CineElevated
-import com.example.ui.theme.CineEmerald
-import com.example.ui.theme.CineEmeraldContainer
-import com.example.ui.theme.CineGold
-import com.example.ui.theme.CineObsidian
-import com.example.ui.theme.CineSurfaceHigh
+import androidx.compose.ui.tooling.preview.Preview
+import com.example.ui.theme.CineLogTheme
+import com.example.ui.theme.CineTheme
+import com.example.ui.theme.ThemeMode
 import java.text.DateFormat
 import java.text.SimpleDateFormat
 import java.util.Calendar
@@ -147,8 +143,8 @@ fun OfflineModeBanner(
         modifier = modifier,
     ) {
         Surface(
-            color = CineGold.copy(alpha = 0.16f),
-            border = BorderStroke(1.dp, CineGold.copy(alpha = 0.45f)),
+            color = CineTheme.extraColors.warningContainer,
+            border = BorderStroke(1.dp, CineTheme.extraColors.warning.copy(alpha = 0.45f)),
             modifier = Modifier.fillMaxWidth(),
         ) {
             Row(
@@ -162,13 +158,13 @@ fun OfflineModeBanner(
                 Icon(
                     imageVector = Icons.Rounded.CloudOff,
                     contentDescription = null,
-                    tint = CineGold,
+                    tint = CineTheme.extraColors.warning,
                     modifier = Modifier.size(16.dp),
                 )
                 Text(
                     text = stringResource(R.string.offline_banner_text),
                     style = MaterialTheme.typography.labelMedium,
-                    color = CineGold,
+                    color = CineTheme.extraColors.warning,
                     fontWeight = FontWeight.SemiBold,
                 )
             }
@@ -212,7 +208,7 @@ fun CineTopNavbar(
         scrollBehavior = scrollBehavior,
         colors = TopAppBarDefaults.topAppBarColors(
             containerColor = MaterialTheme.colorScheme.background.copy(alpha = 0.97f),
-            scrolledContainerColor = CineCharcoal,
+            scrolledContainerColor = MaterialTheme.colorScheme.surface,
             titleContentColor = MaterialTheme.colorScheme.onBackground,
             navigationIconContentColor = MaterialTheme.colorScheme.onBackground,
             actionIconContentColor = MaterialTheme.colorScheme.onBackground,
@@ -238,7 +234,7 @@ fun CineTopNavbar(
         title = {
             if (isSearchExpanded) {
                 Surface(
-                    color = CineElevated,
+                    color = MaterialTheme.colorScheme.surfaceVariant,
                     shape = RoundedCornerShape(12.dp),
                     border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.55f)),
                     modifier = Modifier
@@ -383,7 +379,7 @@ fun CineTopNavbar(
                 DropdownMenu(
                     expanded = menuExpanded,
                     onDismissRequest = { menuExpanded = false },
-                    containerColor = CineCharcoal,
+                    containerColor = MaterialTheme.colorScheme.surface,
                 ) {
                     DropdownMenuItem(
                         text = {
@@ -494,7 +490,7 @@ fun UserProfileAvatar(
 @Composable
 private fun ProfileAvatarPlaceholder(modifier: Modifier = Modifier) {
     Surface(
-        color = CineElevated,
+        color = MaterialTheme.colorScheme.surfaceVariant,
         shape = CircleShape,
         modifier = modifier,
     ) {
@@ -704,7 +700,7 @@ fun DiscoverMovieCard(
         shape = MaterialTheme.shapes.medium,
         border = BorderStroke(
             width = 1.dp,
-            color = if (isWatched) CineEmerald.copy(alpha = 0.5f) else MaterialTheme.colorScheme.outline
+            color = if (isWatched) CineTheme.extraColors.success.copy(alpha = 0.5f) else MaterialTheme.colorScheme.outline
         ),
         modifier = modifier
             .fillMaxWidth()
@@ -718,7 +714,7 @@ fun DiscoverMovieCard(
                 modifier = Modifier
                     .fillMaxWidth()
                     .aspectRatio(2f / 3f)
-                    .background(CineElevated),
+                    .background(MaterialTheme.colorScheme.surfaceVariant),
             ) {
                 val posterUrl = movie.fullPosterThumbUrl()
                 if (posterUrl != null) {
@@ -761,7 +757,10 @@ fun DiscoverMovieCard(
                         .align(Alignment.BottomCenter)
                         .background(
                             Brush.verticalGradient(
-                                colors = listOf(Color.Transparent, CineObsidian.copy(alpha = 0.9f))
+                                colors = listOf(
+                                    CineTheme.extraColors.cardScrimStart,
+                                    CineTheme.extraColors.cardScrimEnd,
+                                )
                             )
                         )
                 )
@@ -771,7 +770,7 @@ fun DiscoverMovieCard(
                 val langBadge = movie.languageName
                 if (langBadge.isNotBlank()) {
                     Surface(
-                        color = CineObsidian.copy(alpha = 0.84f),
+                        color = CineTheme.extraColors.posterOverlayScrim,
                         shape = RoundedCornerShape(6.dp),
                         modifier = Modifier
                             .align(Alignment.TopStart)
@@ -780,7 +779,7 @@ fun DiscoverMovieCard(
                         Text(
                             text = langBadge,
                             style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.onSurface,
+                            color = CineTheme.extraColors.posterOverlayContent,
                             maxLines = 1,
                             modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp),
                         )
@@ -790,7 +789,7 @@ fun DiscoverMovieCard(
                 // Top-right: Star rating (personal rating if rated, or TMDB star + score)
                 if (isWatched && userRating > 0) {
                     Surface(
-                        color = CineGold,
+                        color = CineTheme.extraColors.gold,
                         shape = RoundedCornerShape(7.dp),
                         modifier = Modifier
                             .align(Alignment.TopEnd)
@@ -804,20 +803,20 @@ fun DiscoverMovieCard(
                             Icon(
                                 imageVector = Icons.Rounded.Star,
                                 contentDescription = null,
-                                tint = CineObsidian,
+                                tint = CineTheme.extraColors.onGold,
                                 modifier = Modifier.size(11.dp),
                             )
                             Text(
                                 text = "$userRating",
                                 style = MaterialTheme.typography.labelMedium,
-                                color = CineObsidian,
+                                color = CineTheme.extraColors.onGold,
                                 fontWeight = FontWeight.ExtraBold,
                             )
                         }
                     }
                 } else {
                     Surface(
-                        color = CineObsidian.copy(alpha = 0.84f),
+                        color = CineTheme.extraColors.posterOverlayScrim,
                         shape = RoundedCornerShape(7.dp),
                         modifier = Modifier
                             .align(Alignment.TopEnd)
@@ -831,13 +830,13 @@ fun DiscoverMovieCard(
                             Icon(
                                 imageVector = Icons.Rounded.Star,
                                 contentDescription = null,
-                                tint = CineGold,
+                                tint = CineTheme.extraColors.posterStarGold,
                                 modifier = Modifier.size(11.dp),
                             )
                             Text(
                                 text = String.format(Locale.US, "%.1f", movie.rating),
                                 style = MaterialTheme.typography.labelMedium,
-                                color = MaterialTheme.colorScheme.onSurface,
+                                color = CineTheme.extraColors.posterOverlayContent,
                                 fontWeight = FontWeight.Bold,
                             )
                         }
@@ -849,7 +848,7 @@ fun DiscoverMovieCard(
                     color = if (movie.isTv) {
                         MaterialTheme.colorScheme.primary.copy(alpha = 0.92f)
                     } else {
-                        CineObsidian.copy(alpha = 0.86f)
+                        CineTheme.extraColors.posterBadgeBackground
                     },
                     shape = RoundedCornerShape(6.dp),
                     modifier = Modifier
@@ -862,7 +861,7 @@ fun DiscoverMovieCard(
                         color = if (movie.isTv) {
                             MaterialTheme.colorScheme.onPrimary
                         } else {
-                            MaterialTheme.colorScheme.onSurface
+                            CineTheme.extraColors.posterOverlayContent
                         },
                         fontWeight = FontWeight.Bold,
                         modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
@@ -888,7 +887,7 @@ fun DiscoverMovieCard(
                                     modifier = Modifier
                                         .size(20.dp)
                                         .clip(RoundedCornerShape(5.dp))
-                                        .background(CineObsidian),
+                                        .background(CineTheme.extraColors.posterBadgeBackground),
                                 )
                             }
                         }
@@ -935,8 +934,8 @@ fun DiscoverMovieCard(
                                 .testTag("toggle_watched_button_${movie.uniqueKey}"),
                         ) {
                             Surface(
-                                color = if (isWatched) CineEmeraldContainer else MaterialTheme.colorScheme.primary,
-                                contentColor = if (isWatched) CineEmerald else MaterialTheme.colorScheme.onPrimary,
+                                color = if (isWatched) CineTheme.extraColors.successContainer else MaterialTheme.colorScheme.primary,
+                                contentColor = if (isWatched) CineTheme.extraColors.success else MaterialTheme.colorScheme.onPrimary,
                                 shape = RoundedCornerShape(8.dp),
                                 modifier = Modifier
                                     .fillMaxWidth()
@@ -951,7 +950,7 @@ fun DiscoverMovieCard(
                                         CircularProgressIndicator(
                                             modifier = Modifier.size(14.dp),
                                             strokeWidth = 2.dp,
-                                            color = if (isWatched) CineEmerald else MaterialTheme.colorScheme.onPrimary,
+                                            color = if (isWatched) CineTheme.extraColors.success else MaterialTheme.colorScheme.onPrimary,
                                         )
                                     } else {
                                         Icon(
@@ -985,7 +984,7 @@ fun DiscoverMovieCard(
                                 .testTag("toggle_watchlist_button_${movie.uniqueKey}"),
                         ) {
                             Surface(
-                                color = if (isInWatchlist) MaterialTheme.colorScheme.primaryContainer else CineElevated,
+                                color = if (isInWatchlist) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant,
                                 shape = RoundedCornerShape(8.dp),
                                 border = BorderStroke(
                                     1.dp,
@@ -1044,8 +1043,8 @@ fun DiscoverMovieCard(
                         shape = RoundedCornerShape(10.dp),
                         contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
                         colors = ButtonDefaults.buttonColors(
-                            containerColor = if (isWatched) CineEmeraldContainer else MaterialTheme.colorScheme.primary,
-                            contentColor = if (isWatched) CineEmerald else MaterialTheme.colorScheme.onPrimary,
+                            containerColor = if (isWatched) CineTheme.extraColors.successContainer else MaterialTheme.colorScheme.primary,
+                            contentColor = if (isWatched) CineTheme.extraColors.success else MaterialTheme.colorScheme.onPrimary,
                         ),
                         modifier = Modifier
                             .fillMaxWidth()
@@ -1056,7 +1055,7 @@ fun DiscoverMovieCard(
                             CircularProgressIndicator(
                                 modifier = Modifier.size(16.dp),
                                 strokeWidth = 2.dp,
-                                color = if (isWatched) CineEmerald else MaterialTheme.colorScheme.onPrimary,
+                                color = if (isWatched) CineTheme.extraColors.success else MaterialTheme.colorScheme.onPrimary,
                             )
                         } else {
                             Icon(
@@ -1101,7 +1100,7 @@ fun DiscoverMovieCard(
                                     .testTag("toggle_watchlist_button_${movie.uniqueKey}"),
                             ) {
                                 Surface(
-                                    color = if (isInWatchlist) MaterialTheme.colorScheme.primaryContainer else CineElevated,
+                                    color = if (isInWatchlist) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant,
                                     shape = RoundedCornerShape(10.dp),
                                     border = BorderStroke(
                                         1.dp,
@@ -1147,7 +1146,7 @@ fun DiscoverMovieCard(
                                         .testTag("add_to_list_button_${movie.uniqueKey}"),
                                 ) {
                                     Surface(
-                                        color = CineElevated,
+                                        color = MaterialTheme.colorScheme.surfaceVariant,
                                         shape = RoundedCornerShape(10.dp),
                                         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
                                         modifier = Modifier
@@ -1196,7 +1195,7 @@ fun InteractiveStarRatingBar(
                 Icon(
                     imageVector = if (selected) Icons.Rounded.Star else Icons.Rounded.StarBorder,
                     contentDescription = "Rate $star stars",
-                    tint = if (selected) CineGold else MaterialTheme.colorScheme.onSurfaceVariant,
+                    tint = if (selected) CineTheme.extraColors.gold else MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.size(starSize),
                 )
             }
@@ -1218,9 +1217,9 @@ fun MovieSkeletonCard(modifier: Modifier = Modifier) {
     )
     val brush = Brush.linearGradient(
         colors = listOf(
-            CineElevated,
-            CineSurfaceHigh,
-            CineElevated,
+            CineTheme.extraColors.shimmerBase,
+            CineTheme.extraColors.shimmerHighlight,
+            CineTheme.extraColors.shimmerBase,
         ),
         start = Offset(translateAnim - 300f, 0f),
         end = Offset(translateAnim, 300f),
@@ -1297,7 +1296,7 @@ fun CineEmptyState(
             )
         } else {
             Surface(
-                color = CineElevated,
+                color = MaterialTheme.colorScheme.surfaceVariant,
                 shape = CircleShape,
                 modifier = Modifier.size(72.dp),
             ) {
@@ -1362,7 +1361,7 @@ fun LibrarySyncErrorState(
         verticalArrangement = Arrangement.Center,
     ) {
         Surface(
-            color = CineElevated,
+            color = MaterialTheme.colorScheme.surfaceVariant,
             shape = CircleShape,
             border = BorderStroke(1.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.45f)),
             modifier = Modifier.size(68.dp),
@@ -1472,7 +1471,7 @@ fun LibrarySyncErrorState(
                 exit = shrinkVertically(),
             ) {
                 Surface(
-                    color = CineElevated,
+                    color = MaterialTheme.colorScheme.surfaceVariant,
                     shape = RoundedCornerShape(12.dp),
                     border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
                     modifier = Modifier
@@ -1509,4 +1508,84 @@ fun formatLastSyncedLabel(lastSyncedAtMillis: Long?): String {
         SimpleDateFormat("MMM d, h:mm a", Locale.getDefault()).format(Date(lastSyncedAtMillis))
     }
     return "Last synced: $formatted"
+}
+
+@Preview(name = "Discover Card & Offline Banner - Dark", showBackground = true)
+@Composable
+private fun CineComponentsDarkPreview() {
+    CineLogTheme(themeMode = ThemeMode.DARK) {
+        Surface(color = MaterialTheme.colorScheme.background) {
+            Column(
+                modifier = Modifier.padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                OfflineModeBanner(isOffline = true)
+                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    DiscoverMovieCard(
+                        movie = MovieSummary(
+                            movieId = 1L,
+                            title = "Interstellar",
+                            posterPath = null,
+                            backdropPath = null,
+                            releaseDate = "2014-11-07",
+                            rating = 8.4,
+                            overview = "",
+                            originalLanguage = "en",
+                        ),
+                        isWatched = true,
+                        isInWatchlist = false,
+                        isToggling = false,
+                        isWatchlistToggling = false,
+                        userRating = 5,
+                        providers = null,
+                        onCardClick = {},
+                        onToggleWatched = {},
+                        onToggleWatchlist = {},
+                        modifier = Modifier.weight(1f),
+                    )
+                    MovieSkeletonCard(modifier = Modifier.weight(1f))
+                }
+            }
+        }
+    }
+}
+
+@Preview(name = "Discover Card & Offline Banner - Light", showBackground = true)
+@Composable
+private fun CineComponentsLightPreview() {
+    CineLogTheme(themeMode = ThemeMode.LIGHT) {
+        Surface(color = MaterialTheme.colorScheme.background) {
+            Column(
+                modifier = Modifier.padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                OfflineModeBanner(isOffline = true)
+                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    DiscoverMovieCard(
+                        movie = MovieSummary(
+                            movieId = 1L,
+                            title = "Interstellar",
+                            posterPath = null,
+                            backdropPath = null,
+                            releaseDate = "2014-11-07",
+                            rating = 8.4,
+                            overview = "",
+                            originalLanguage = "en",
+                        ),
+                        isWatched = true,
+                        isInWatchlist = false,
+                        isToggling = false,
+                        isWatchlistToggling = false,
+                        userRating = 5,
+                        providers = null,
+                        onCardClick = {},
+                        onToggleWatched = {},
+                        onToggleWatchlist = {},
+                        modifier = Modifier.weight(1f),
+                    )
+                    MovieSkeletonCard(modifier = Modifier.weight(1f))
+                }
+            }
+        }
+    }
 }

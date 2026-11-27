@@ -68,12 +68,7 @@ import com.example.data.model.WatchedMovie
 import com.example.data.model.WatchedSeason
 import com.example.ui.EarlierSeasonsPrompt
 import com.example.ui.SeasonEpisodesLoadState
-import com.example.ui.theme.CineCharcoal
-import com.example.ui.theme.CineElevated
-import com.example.ui.theme.CineEmerald
-import com.example.ui.theme.CineEmeraldContainer
-import com.example.ui.theme.CineGold
-import com.example.ui.theme.CineSurfaceHigh
+import com.example.ui.theme.CineTheme
 
 @Composable
 fun TvSeasonEpisodeSection(
@@ -166,7 +161,7 @@ fun TvSeasonEpisodeSection(
 
         // Progress Overview Header Card
         Surface(
-            color = CineElevated,
+            color = MaterialTheme.colorScheme.surfaceVariant,
             shape = MaterialTheme.shapes.medium,
             border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
             modifier = Modifier.fillMaxWidth(),
@@ -213,11 +208,11 @@ fun TvSeasonEpisodeSection(
                 LinearProgressIndicator(
                     progress = { progressFraction },
                     color = if (effectiveStatus == TvWatchStatus.COMPLETED) {
-                        CineEmerald
+                        CineTheme.extraColors.success
                     } else {
                         MaterialTheme.colorScheme.primary
                     },
-                    trackColor = CineSurfaceHigh,
+                    trackColor = MaterialTheme.colorScheme.surfaceContainerHigh,
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(8.dp)
@@ -337,7 +332,7 @@ fun TvSeasonEpisodeSection(
         // Seasons List
         if (visibleSeasons.isEmpty()) {
             Surface(
-                color = CineElevated,
+                color = MaterialTheme.colorScheme.surfaceVariant,
                 shape = MaterialTheme.shapes.medium,
                 modifier = Modifier.fillMaxWidth(),
             ) {
@@ -392,7 +387,7 @@ fun TvSeasonEpisodeSection(
     if (earlierSeasonsPrompt != null) {
         AlertDialog(
             onDismissRequest = onDismissEarlierPrompt,
-            containerColor = CineCharcoal,
+            containerColor = MaterialTheme.colorScheme.surface,
             title = {
                 Text(
                     text = "Mark Season 1 to ${earlierSeasonsPrompt.targetSeason.seasonNumber} as watched?",
@@ -434,9 +429,9 @@ fun TvStatusPill(
     modifier: Modifier = Modifier,
 ) {
     val (bgColor, textColor) = when (status) {
-        TvWatchStatus.COMPLETED -> CineEmeraldContainer to CineEmerald
+        TvWatchStatus.COMPLETED -> CineTheme.extraColors.successContainer to CineTheme.extraColors.success
         TvWatchStatus.WATCHING -> MaterialTheme.colorScheme.primaryContainer to MaterialTheme.colorScheme.onPrimaryContainer
-        TvWatchStatus.NOT_STARTED -> CineSurfaceHigh to MaterialTheme.colorScheme.onSurfaceVariant
+        TvWatchStatus.NOT_STARTED -> MaterialTheme.colorScheme.surfaceContainerHigh to MaterialTheme.colorScheme.onSurfaceVariant
     }
     Surface(
         color = bgColor,
@@ -470,11 +465,11 @@ private fun SeasonAccordionCard(
     val isDisabled = season.isUpcoming
 
     Surface(
-        color = CineElevated,
+        color = MaterialTheme.colorScheme.surfaceVariant,
         shape = MaterialTheme.shapes.medium,
         border = BorderStroke(
             width = 1.dp,
-            color = if (isSeasonWatched) CineEmerald.copy(alpha = 0.55f) else MaterialTheme.colorScheme.outline,
+            color = if (isSeasonWatched) CineTheme.extraColors.success.copy(alpha = 0.55f) else MaterialTheme.colorScheme.outline,
         ),
         modifier = Modifier
             .fillMaxWidth()
@@ -495,7 +490,7 @@ private fun SeasonAccordionCard(
                         .width(42.dp)
                         .height(62.dp)
                         .clip(RoundedCornerShape(8.dp))
-                        .background(CineSurfaceHigh),
+                        .background(MaterialTheme.colorScheme.surfaceContainerHigh),
                     contentAlignment = Alignment.Center,
                 ) {
                     val posterUrl = season.fullPosterUrl()
@@ -533,13 +528,13 @@ private fun SeasonAccordionCard(
                         )
                         if (isDisabled) {
                             Surface(
-                                color = CineGold.copy(alpha = 0.16f),
+                                color = CineTheme.extraColors.warningContainer,
                                 shape = RoundedCornerShape(6.dp),
                             ) {
                                 Text(
                                     text = "Upcoming",
                                     style = MaterialTheme.typography.labelSmall,
-                                    color = CineGold,
+                                    color = CineTheme.extraColors.warning,
                                     fontWeight = FontWeight.Bold,
                                     modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
                                 )
@@ -583,7 +578,7 @@ private fun SeasonAccordionCard(
                             } else {
                                 "Mark ${season.displayTitle} watched"
                             },
-                            tint = if (isSeasonWatched) CineEmerald else MaterialTheme.colorScheme.onSurfaceVariant,
+                            tint = if (isSeasonWatched) CineTheme.extraColors.success else MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
 
@@ -603,7 +598,7 @@ private fun SeasonAccordionCard(
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .background(CineCharcoal.copy(alpha = 0.55f))
+                        .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.55f))
                         .padding(horizontal = 12.dp, vertical = 10.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
@@ -671,14 +666,14 @@ private fun SeasonAccordionCard(
                                         horizontalArrangement = Arrangement.spacedBy(10.dp),
                                     ) {
                                         Surface(
-                                            color = if (epWatched) CineEmeraldContainer else CineSurfaceHigh,
+                                            color = if (epWatched) CineTheme.extraColors.successContainer else MaterialTheme.colorScheme.surfaceContainerHigh,
                                             shape = RoundedCornerShape(6.dp),
                                             modifier = Modifier.width(42.dp),
                                         ) {
                                             Text(
                                                 text = "E${ep.episodeNumber}",
                                                 style = MaterialTheme.typography.labelMedium,
-                                                color = if (epWatched) CineEmerald else MaterialTheme.colorScheme.onSurface,
+                                                color = if (epWatched) CineTheme.extraColors.success else MaterialTheme.colorScheme.onSurface,
                                                 fontWeight = FontWeight.Bold,
                                                 modifier = Modifier.padding(horizontal = 6.dp, vertical = 6.dp),
                                                 maxLines = 1,
@@ -706,7 +701,7 @@ private fun SeasonAccordionCard(
                                                 Text(
                                                     text = epMeta,
                                                     style = MaterialTheme.typography.labelSmall,
-                                                    color = if (epDisabled) CineGold else MaterialTheme.colorScheme.onSurfaceVariant,
+                                                    color = if (epDisabled) CineTheme.extraColors.warning else MaterialTheme.colorScheme.onSurfaceVariant,
                                                 )
                                             }
                                         }
@@ -716,8 +711,8 @@ private fun SeasonAccordionCard(
                                             enabled = !epDisabled && !isSavingProgress,
                                             onCheckedChange = { onToggleEpisode(ep.episodeNumber) },
                                             colors = CheckboxDefaults.colors(
-                                                checkedColor = CineEmerald,
-                                                checkmarkColor = CineCharcoal,
+                                                checkedColor = CineTheme.extraColors.success,
+                                                checkmarkColor = MaterialTheme.colorScheme.onTertiary,
                                             ),
                                             modifier = Modifier
                                                 .minimumInteractiveComponentSize()
@@ -755,7 +750,7 @@ private fun EpisodeSkeletonList() {
                         .width(42.dp)
                         .height(28.dp)
                         .clip(RoundedCornerShape(6.dp))
-                        .background(CineSurfaceHigh)
+                        .background(CineTheme.extraColors.shimmerHighlight)
                 )
                 Column(
                     modifier = Modifier.weight(1f),
@@ -766,21 +761,21 @@ private fun EpisodeSkeletonList() {
                             .fillMaxWidth(0.7f)
                             .height(14.dp)
                             .clip(RoundedCornerShape(4.dp))
-                            .background(CineSurfaceHigh)
+                            .background(CineTheme.extraColors.shimmerHighlight)
                     )
                     Box(
                         modifier = Modifier
                             .fillMaxWidth(0.4f)
                             .height(10.dp)
                             .clip(RoundedCornerShape(4.dp))
-                            .background(CineSurfaceHigh)
+                            .background(CineTheme.extraColors.shimmerHighlight)
                     )
                 }
                 Box(
                     modifier = Modifier
                         .size(22.dp)
                         .clip(RoundedCornerShape(4.dp))
-                        .background(CineSurfaceHigh)
+                        .background(CineTheme.extraColors.shimmerHighlight)
                 )
             }
         }

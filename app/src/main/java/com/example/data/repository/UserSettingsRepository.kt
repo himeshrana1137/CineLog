@@ -11,6 +11,7 @@ import com.example.data.firebase.observeAuthGatedFirestoreStream
 import com.example.data.firebase.verifyReadOnlyServerFetch
 import com.example.data.model.AccentPreset
 import com.example.data.model.UserSettings
+import com.example.ui.theme.ThemeMode
 import com.google.firebase.Firebase
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.auth
@@ -42,11 +43,23 @@ class UserSettingsRepository(
     private val db: FirebaseFirestore,
     private val auth: FirebaseAuth = Firebase.auth,
     private val prefs: SharedPreferences? = null,
+    private val appContext: Context? = null,
 ) {
     constructor(context: Context) : this(
         db = FirestoreProvider.getInstance(context),
         prefs = context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE),
+        appContext = context.applicationContext,
     )
+
+    init {
+        appContext?.let { ThemePreferencesStore.ensureLoaded(it) }
+    }
+
+    val themeMode: StateFlow<ThemeMode> = ThemePreferencesStore.themeMode
+
+    suspend fun setThemeMode(mode: ThemeMode) {
+        ThemePreferencesStore.setThemeMode(mode, appContext)
+    }
 
     private fun requireUserId(): String =
         auth.currentUser?.uid

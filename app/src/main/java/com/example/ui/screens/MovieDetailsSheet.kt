@@ -110,13 +110,7 @@ import com.example.ui.SeasonEpisodesLoadState
 import com.example.ui.components.InteractiveStarRatingBar
 import com.example.ui.components.TvSeasonEpisodeSection
 import com.example.ui.components.YouTubeTrailerPlayer
-import com.example.ui.theme.CineCharcoal
-import com.example.ui.theme.CineElevated
-import com.example.ui.theme.CineEmerald
-import com.example.ui.theme.CineEmeraldContainer
-import com.example.ui.theme.CineGold
-import com.example.ui.theme.CineObsidian
-import com.example.ui.theme.CineSurfaceHigh
+import com.example.ui.theme.CineTheme
 import kotlinx.coroutines.flow.SharedFlow
 import java.util.Locale
 
@@ -208,7 +202,7 @@ fun MovieDetailsSheet(
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
-        containerColor = CineCharcoal,
+        containerColor = MaterialTheme.colorScheme.surface,
         contentColor = MaterialTheme.colorScheme.onSurface,
         contentWindowInsets = { WindowInsets(0, 0, 0, 0) },
         dragHandle = null,
@@ -229,7 +223,7 @@ fun MovieDetailsSheet(
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(220.dp)
-                    .background(CineElevated),
+                    .background(MaterialTheme.colorScheme.surfaceVariant),
             ) {
                 val heroUrl = details?.fullBackdropUrl()
                     ?: summary.fullBackdropUrl()
@@ -248,9 +242,9 @@ fun MovieDetailsSheet(
                         .background(
                             Brush.verticalGradient(
                                 colors = listOf(
-                                    CineObsidian.copy(alpha = 0.25f),
-                                    CineCharcoal.copy(alpha = 0.78f),
-                                    CineCharcoal,
+                                    CineTheme.extraColors.posterOverlayScrim.copy(alpha = 0.25f),
+                                    MaterialTheme.colorScheme.surface.copy(alpha = 0.78f),
+                                    MaterialTheme.colorScheme.surface,
                                 )
                             )
                         )
@@ -288,7 +282,7 @@ fun MovieDetailsSheet(
 
                 // Close button
                 Surface(
-                    color = CineObsidian.copy(alpha = 0.7f),
+                    color = CineTheme.extraColors.posterOverlayScrim.copy(alpha = 0.7f),
                     shape = CircleShape,
                     modifier = Modifier
                         .align(Alignment.TopEnd)
@@ -303,7 +297,7 @@ fun MovieDetailsSheet(
                         Icon(
                             imageVector = Icons.Rounded.Close,
                             contentDescription = stringResource(R.string.close),
-                            tint = Color.White,
+                            tint = CineTheme.extraColors.posterOverlayContent,
                         )
                     }
                 }
@@ -335,7 +329,7 @@ fun MovieDetailsSheet(
                 LinearProgressIndicator(
                     modifier = Modifier.fillMaxWidth(),
                     color = MaterialTheme.colorScheme.primary,
-                    trackColor = CineElevated,
+                    trackColor = MaterialTheme.colorScheme.surfaceVariant,
                 )
             }
 
@@ -351,7 +345,7 @@ fun MovieDetailsSheet(
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     Surface(
-                        color = CineElevated,
+                        color = MaterialTheme.colorScheme.surfaceVariant,
                         shape = RoundedCornerShape(8.dp),
                     ) {
                         Text(
@@ -367,7 +361,7 @@ fun MovieDetailsSheet(
                         ?: watchedMovie?.languageName.orEmpty()
                     if (languageName.isNotBlank()) {
                         Surface(
-                            color = CineElevated,
+                            color = MaterialTheme.colorScheme.surfaceVariant,
                             shape = RoundedCornerShape(8.dp),
                         ) {
                             Row(
@@ -394,7 +388,7 @@ fun MovieDetailsSheet(
                     val totalEpisodes = details?.numberOfEpisodes ?: watchedMovie?.numberOfEpisodes ?: 0
                     if (isTv && totalSeasons > 0) {
                         Surface(
-                            color = CineElevated,
+                            color = MaterialTheme.colorScheme.surfaceVariant,
                             shape = RoundedCornerShape(8.dp),
                         ) {
                             val epSuffix = if (totalEpisodes > 0) " • $totalEpisodes Eps" else ""
@@ -413,7 +407,7 @@ fun MovieDetailsSheet(
                         val mins = runtime % 60
                         val runtimeText = if (hours > 0) "${hours}h ${mins}m" else "${mins}m"
                         Surface(
-                            color = CineElevated,
+                            color = MaterialTheme.colorScheme.surfaceVariant,
                             shape = RoundedCornerShape(8.dp),
                         ) {
                             Row(
@@ -437,7 +431,7 @@ fun MovieDetailsSheet(
                     }
 
                     Surface(
-                        color = CineGold.copy(alpha = 0.16f),
+                        color = CineTheme.extraColors.gold.copy(alpha = 0.16f),
                         shape = RoundedCornerShape(8.dp),
                     ) {
                         Row(
@@ -448,13 +442,13 @@ fun MovieDetailsSheet(
                             Icon(
                                 imageVector = Icons.Rounded.Star,
                                 contentDescription = null,
-                                tint = CineGold,
+                                tint = CineTheme.extraColors.gold,
                                 modifier = Modifier.size(15.dp),
                             )
                             Text(
                                 text = "${String.format(Locale.US, "%.1f", summary.rating)} TMDB",
                                 style = MaterialTheme.typography.labelLarge,
-                                color = CineGold,
+                                color = CineTheme.extraColors.gold,
                             )
                         }
                     }
@@ -482,7 +476,7 @@ fun MovieDetailsSheet(
                     ) {
                         genres.forEach { genre ->
                             Surface(
-                                color = CineSurfaceHigh,
+                                color = MaterialTheme.colorScheme.surfaceContainerHigh,
                                 shape = RoundedCornerShape(50),
                             ) {
                                 Text(
@@ -504,9 +498,9 @@ fun MovieDetailsSheet(
                     ) {
                         if (isWatched) {
                             Surface(
-                                color = CineEmeraldContainer,
+                                color = CineTheme.extraColors.successContainer,
                                 shape = RoundedCornerShape(12.dp),
-                                border = BorderStroke(1.dp, CineEmerald.copy(alpha = 0.5f)),
+                                border = BorderStroke(1.dp, CineTheme.extraColors.success.copy(alpha = 0.5f)),
                                 modifier = Modifier
                                     .weight(1f)
                                     .height(48.dp),
@@ -519,14 +513,14 @@ fun MovieDetailsSheet(
                                     Icon(
                                         imageVector = Icons.Rounded.Check,
                                         contentDescription = null,
-                                        tint = CineEmerald,
+                                        tint = CineTheme.extraColors.success,
                                         modifier = Modifier.size(18.dp),
                                     )
                                     Spacer(modifier = Modifier.width(6.dp))
                                     Text(
                                         text = "In Watched",
                                         style = MaterialTheme.typography.labelLarge,
-                                        color = CineEmerald,
+                                        color = CineTheme.extraColors.success,
                                     )
                                 }
                             }
@@ -658,8 +652,8 @@ fun MovieDetailsSheet(
                                 onClick = { onLogRewatch(watchedMovie) },
                                 shape = RoundedCornerShape(12.dp),
                                 colors = ButtonDefaults.buttonColors(
-                                    containerColor = CineElevated,
-                                    contentColor = CineGold,
+                                    containerColor = MaterialTheme.colorScheme.surfaceVariant,
+                                    contentColor = CineTheme.extraColors.gold,
                                 ),
                                 modifier = Modifier
                                     .weight(1f)
@@ -692,7 +686,7 @@ fun MovieDetailsSheet(
                             val dates = watchedMovie.resolvedWatchDates
                             dates.forEachIndexed { idx, iso ->
                                 Surface(
-                                    color = CineElevated,
+                                    color = MaterialTheme.colorScheme.surfaceVariant,
                                     shape = RoundedCornerShape(50),
                                     border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
                                 ) {
@@ -754,7 +748,7 @@ fun MovieDetailsSheet(
 
                 // Personal Rating, Quick Emoji Reaction & Watch Note card
                 Surface(
-                    color = CineElevated,
+                    color = MaterialTheme.colorScheme.surfaceVariant,
                     shape = MaterialTheme.shapes.medium,
                     border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
                     modifier = Modifier.fillMaxWidth(),
@@ -784,7 +778,7 @@ fun MovieDetailsSheet(
                             Text(
                                 text = if (draftRating > 0) "$draftRating / 5" else "Unrated",
                                 style = MaterialTheme.typography.labelLarge,
-                                color = if (draftRating > 0) CineGold else MaterialTheme.colorScheme.onSurfaceVariant,
+                                color = if (draftRating > 0) CineTheme.extraColors.gold else MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                         }
 
@@ -833,7 +827,7 @@ fun MovieDetailsSheet(
                                         .height(40.dp)
                                         .background(
                                             Brush.horizontalGradient(
-                                                colors = listOf(Color.Transparent, CineElevated)
+                                                colors = listOf(Color.Transparent, MaterialTheme.colorScheme.surfaceVariant)
                                             )
                                         )
                                 )
@@ -849,8 +843,8 @@ fun MovieDetailsSheet(
                             maxLines = 4,
                             shape = RoundedCornerShape(12.dp),
                             colors = OutlinedTextFieldDefaults.colors(
-                                focusedContainerColor = CineCharcoal,
-                                unfocusedContainerColor = CineCharcoal,
+                                focusedContainerColor = MaterialTheme.colorScheme.surface,
+                                unfocusedContainerColor = MaterialTheme.colorScheme.surface,
                                 focusedBorderColor = MaterialTheme.colorScheme.primary,
                                 unfocusedBorderColor = MaterialTheme.colorScheme.outline,
                             ),
@@ -1027,7 +1021,7 @@ fun MovieDetailsSheet(
                                         .width(if (img.isBackdrop) 200.dp else 104.dp)
                                         .height(140.dp)
                                         .clip(RoundedCornerShape(12.dp))
-                                        .background(CineElevated)
+                                        .background(MaterialTheme.colorScheme.surfaceVariant)
                                         .clickable { onOpenImageGalleryItem(summary.title, img) }
                                         .testTag("gallery_image_${img.filePath}"),
                                 ) {
@@ -1038,7 +1032,7 @@ fun MovieDetailsSheet(
                                         modifier = Modifier.fillMaxSize(),
                                     )
                                     Surface(
-                                        color = CineObsidian.copy(alpha = 0.72f),
+                                        color = CineTheme.extraColors.posterOverlayScrim.copy(alpha = 0.72f),
                                         shape = RoundedCornerShape(6.dp),
                                         modifier = Modifier
                                             .align(Alignment.BottomEnd)
@@ -1047,7 +1041,7 @@ fun MovieDetailsSheet(
                                         Text(
                                             text = if (img.isBackdrop) "Backdrop" else "Poster",
                                             style = MaterialTheme.typography.labelMedium,
-                                            color = Color.White,
+                                            color = CineTheme.extraColors.posterOverlayContent,
                                             modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
                                         )
                                     }
@@ -1091,7 +1085,7 @@ fun MovieDetailsSheet(
             ) { data ->
                 Snackbar(
                     snackbarData = data,
-                    containerColor = CineElevated,
+                    containerColor = MaterialTheme.colorScheme.surfaceVariant,
                     contentColor = MaterialTheme.colorScheme.onSurface,
                     actionColor = MaterialTheme.colorScheme.primary,
                 )
@@ -1162,7 +1156,7 @@ private fun ProviderCategoryRow(
         ) {
             providers.forEach { provider ->
                 Surface(
-                    color = CineElevated,
+                    color = MaterialTheme.colorScheme.surfaceVariant,
                     shape = RoundedCornerShape(10.dp),
                     border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
                 ) {
@@ -1205,7 +1199,7 @@ private fun CastChipCard(member: CastMember) {
             modifier = Modifier
                 .size(68.dp)
                 .clip(CircleShape)
-                .background(CineElevated),
+                .background(MaterialTheme.colorScheme.surfaceVariant),
             contentAlignment = Alignment.Center,
         ) {
             val url = member.fullProfileUrl()

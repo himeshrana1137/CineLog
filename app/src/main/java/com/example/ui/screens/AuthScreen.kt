@@ -120,7 +120,9 @@ import com.example.ui.components.CineLogLogo
 import com.example.ui.components.CineLogLogoLayout
 import com.example.ui.theme.CineCrimsonGlow
 import com.example.ui.theme.CineGold
+import com.example.ui.theme.CineLogTheme
 import com.example.ui.theme.CineObsidian
+import com.example.ui.theme.CineTheme
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlin.math.PI
@@ -141,6 +143,32 @@ fun AuthScreen(
     initialMessage: String? = null,
     onMessageConsumed: () -> Unit = {},
     tmdbRepository: TmdbRepository = remember { TmdbRepository() },
+) {
+    if (!CineTheme.extraColors.isDark) {
+        CineLogTheme(forceDark = true) {
+            AuthScreenContent(
+                onAuthSuccess = onAuthSuccess,
+                initialMessage = initialMessage,
+                onMessageConsumed = onMessageConsumed,
+                tmdbRepository = tmdbRepository,
+            )
+        }
+        return
+    }
+    AuthScreenContent(
+        onAuthSuccess = onAuthSuccess,
+        initialMessage = initialMessage,
+        onMessageConsumed = onMessageConsumed,
+        tmdbRepository = tmdbRepository,
+    )
+}
+
+@Composable
+private fun AuthScreenContent(
+    onAuthSuccess: () -> Unit,
+    initialMessage: String? = null,
+    onMessageConsumed: () -> Unit = {},
+    tmdbRepository: TmdbRepository,
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()

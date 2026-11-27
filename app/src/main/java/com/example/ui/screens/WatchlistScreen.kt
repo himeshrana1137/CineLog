@@ -70,9 +70,7 @@ import com.example.ui.WatchlistUiState
 import com.example.ui.components.CineEmptyState
 import com.example.ui.components.LibrarySyncErrorState
 import com.example.ui.components.MovieSkeletonCard
-import com.example.ui.theme.CineElevated
-import com.example.ui.theme.CineGold
-import com.example.ui.theme.CineSurfaceHigh
+import com.example.ui.theme.CineTheme
 import java.util.Locale
 
 @Composable
@@ -431,7 +429,7 @@ private fun WatchlistCard(
                     .width(84.dp)
                     .height(124.dp)
                     .clip(RoundedCornerShape(10.dp))
-                    .background(CineElevated),
+                    .background(MaterialTheme.colorScheme.surfaceVariant),
                 contentAlignment = Alignment.Center,
             ) {
                 val posterUrl = item.fullPosterUrl()
@@ -488,7 +486,7 @@ private fun WatchlistCard(
                     )
                     Spacer(modifier = Modifier.width(6.dp))
                     Surface(
-                        color = CineSurfaceHigh,
+                        color = MaterialTheme.colorScheme.surfaceContainerHigh,
                         shape = RoundedCornerShape(6.dp),
                     ) {
                         Row(
@@ -499,7 +497,7 @@ private fun WatchlistCard(
                             Icon(
                                 imageVector = Icons.Rounded.Star,
                                 contentDescription = null,
-                                tint = CineGold,
+                                tint = CineTheme.extraColors.gold,
                                 modifier = Modifier.size(12.dp),
                             )
                             Text(

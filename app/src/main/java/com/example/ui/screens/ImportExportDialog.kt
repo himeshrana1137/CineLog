@@ -64,12 +64,7 @@ import androidx.compose.ui.window.DialogProperties
 import coil.compose.AsyncImage
 import com.example.data.model.MovieSummary
 import com.example.ui.ImportUiState
-import com.example.ui.theme.CineCharcoal
-import com.example.ui.theme.CineElevated
-import com.example.ui.theme.CineEmerald
-import com.example.ui.theme.CineEmeraldContainer
-import com.example.ui.theme.CineGold
-import com.example.ui.theme.CineSurfaceHigh
+import com.example.ui.theme.CineTheme
 import com.example.util.ImportCandidateRow
 import kotlinx.coroutines.launch
 
@@ -149,7 +144,7 @@ fun ImportExportDialog(
         properties = DialogProperties(usePlatformDefaultWidth = false),
     ) {
         Surface(
-            color = CineCharcoal,
+            color = MaterialTheme.colorScheme.surface,
             shape = MaterialTheme.shapes.large,
             border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
             modifier = Modifier
@@ -190,7 +185,7 @@ fun ImportExportDialog(
 
                 // Export Section
                 Surface(
-                    color = CineElevated,
+                    color = MaterialTheme.colorScheme.surfaceVariant,
                     shape = MaterialTheme.shapes.medium,
                     border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
                     modifier = Modifier.fillMaxWidth(),
@@ -303,7 +298,7 @@ fun ImportExportDialog(
 
                     is ImportUiState.Matching -> {
                         Surface(
-                            color = CineElevated,
+                            color = MaterialTheme.colorScheme.surfaceVariant,
                             shape = MaterialTheme.shapes.medium,
                             modifier = Modifier.fillMaxWidth(),
                         ) {
@@ -344,26 +339,26 @@ fun ImportExportDialog(
                         ) {
                             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                 Surface(
-                                    color = CineEmeraldContainer,
+                                    color = CineTheme.extraColors.successContainer,
                                     shape = RoundedCornerShape(50),
                                 ) {
                                     Text(
                                         text = "$matchedCount Matched",
                                         style = MaterialTheme.typography.labelMedium,
-                                        color = CineEmerald,
+                                        color = CineTheme.extraColors.success,
                                         fontWeight = FontWeight.Bold,
                                         modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
                                     )
                                 }
                                 if (unmatchedCount > 0) {
                                     Surface(
-                                        color = CineGold.copy(alpha = 0.16f),
+                                        color = CineTheme.extraColors.warningContainer,
                                         shape = RoundedCornerShape(50),
                                     ) {
                                         Text(
                                             text = "$unmatchedCount Unmatched",
                                             style = MaterialTheme.typography.labelMedium,
-                                            color = CineGold,
+                                            color = CineTheme.extraColors.warning,
                                             fontWeight = FontWeight.Bold,
                                             modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
                                         )
@@ -430,7 +425,7 @@ fun ImportExportDialog(
         var csvText by remember { mutableStateOf("") }
         AlertDialog(
             onDismissRequest = { showPasteCsvDialog = false },
-            containerColor = CineCharcoal,
+            containerColor = MaterialTheme.colorScheme.surface,
             title = { Text("Paste CSV Contents") },
             text = {
                 OutlinedTextField(
@@ -440,8 +435,8 @@ fun ImportExportDialog(
                     maxLines = 8,
                     placeholder = { Text("Name,Year,Rating,Watched Date\nInception,2010,5,2026-01-10") },
                     colors = OutlinedTextFieldDefaults.colors(
-                        focusedContainerColor = CineElevated,
-                        unfocusedContainerColor = CineElevated,
+                        focusedContainerColor = MaterialTheme.colorScheme.surfaceVariant,
+                        unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant,
                     ),
                     modifier = Modifier
                         .fillMaxWidth()
@@ -486,15 +481,16 @@ private fun ImportPreviewRowCard(
     onToggleSkip: () -> Unit,
 ) {
     val matched = row.matchedMovie
+    val extraColors = CineTheme.extraColors
     Surface(
-        color = CineElevated,
+        color = MaterialTheme.colorScheme.surfaceVariant,
         shape = MaterialTheme.shapes.medium,
         border = BorderStroke(
             1.dp,
             when {
                 row.isSkipped -> MaterialTheme.colorScheme.outline.copy(alpha = 0.5f)
-                matched != null -> CineEmerald.copy(alpha = 0.5f)
-                else -> CineGold.copy(alpha = 0.7f)
+                matched != null -> extraColors.success.copy(alpha = 0.5f)
+                else -> extraColors.warning.copy(alpha = 0.7f)
             }
         ),
         modifier = Modifier
@@ -513,8 +509,8 @@ private fun ImportPreviewRowCard(
                 contentDescription = null,
                 tint = when {
                     row.isSkipped -> MaterialTheme.colorScheme.onSurfaceVariant
-                    matched != null -> CineEmerald
-                    else -> CineGold
+                    matched != null -> extraColors.success
+                    else -> extraColors.warning
                 },
                 modifier = Modifier.size(20.dp),
             )
@@ -534,7 +530,7 @@ private fun ImportPreviewRowCard(
                         else -> "No automatic TMDB match found"
                     },
                     style = MaterialTheme.typography.bodyMedium,
-                    color = if (matched == null && !row.isSkipped) CineGold else MaterialTheme.colorScheme.onSurfaceVariant,
+                    color = if (matched == null && !row.isSkipped) extraColors.warning else MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
@@ -591,7 +587,7 @@ private fun FixImportMatchDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        containerColor = CineCharcoal,
+        containerColor = MaterialTheme.colorScheme.surface,
         title = { Text("Match \"${row.sourceTitle}\"") },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -605,8 +601,8 @@ private fun FixImportMatchDialog(
                         singleLine = true,
                         label = { Text("Search TMDB") },
                         colors = OutlinedTextFieldDefaults.colors(
-                            focusedContainerColor = CineElevated,
-                            unfocusedContainerColor = CineElevated,
+                            focusedContainerColor = MaterialTheme.colorScheme.surfaceVariant,
+                            unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant,
                         ),
                         modifier = Modifier.weight(1f),
                     )
@@ -638,7 +634,7 @@ private fun FixImportMatchDialog(
                 ) {
                     items(results, key = { it.uniqueKey }) { item ->
                         Surface(
-                            color = CineElevated,
+                            color = MaterialTheme.colorScheme.surfaceVariant,
                             shape = MaterialTheme.shapes.small,
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -655,7 +651,7 @@ private fun FixImportMatchDialog(
                                         .width(36.dp)
                                         .height(54.dp)
                                         .clip(RoundedCornerShape(6.dp))
-                                        .background(CineSurfaceHigh),
+                                        .background(MaterialTheme.colorScheme.surfaceContainerHigh),
                                     contentAlignment = Alignment.Center,
                                 ) {
                                     val poster = item.fullPosterUrl()

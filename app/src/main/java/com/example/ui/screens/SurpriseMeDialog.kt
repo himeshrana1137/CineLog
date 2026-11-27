@@ -52,10 +52,7 @@ import coil.compose.AsyncImage
 import com.example.data.model.StatsCalculator
 import com.example.data.model.WatchlistItem
 import com.example.ui.SurpriseMeState
-import com.example.ui.theme.CineCharcoal
-import com.example.ui.theme.CineElevated
-import com.example.ui.theme.CineGold
-import com.example.ui.theme.CineSurfaceHigh
+import com.example.ui.theme.CineTheme
 import java.util.Locale
 
 private val RUNTIME_FILTER_OPTIONS = listOf(
@@ -92,7 +89,7 @@ fun SurpriseMeDialog(
         properties = DialogProperties(usePlatformDefaultWidth = false),
     ) {
         Surface(
-            color = CineCharcoal,
+            color = MaterialTheme.colorScheme.surface,
             shape = MaterialTheme.shapes.large,
             border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
             modifier = Modifier
@@ -243,7 +240,7 @@ fun SurpriseMeDialog(
                 val picked = state.pickedItem
                 if (picked == null) {
                     Surface(
-                        color = CineElevated,
+                        color = MaterialTheme.colorScheme.surfaceVariant,
                         shape = MaterialTheme.shapes.medium,
                         modifier = Modifier.fillMaxWidth(),
                     ) {
@@ -260,7 +257,7 @@ fun SurpriseMeDialog(
                     }
                 } else {
                     Surface(
-                        color = CineElevated,
+                        color = MaterialTheme.colorScheme.surfaceVariant,
                         shape = MaterialTheme.shapes.medium,
                         border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.5f)),
                         modifier = Modifier.fillMaxWidth(),
@@ -276,7 +273,7 @@ fun SurpriseMeDialog(
                                     .width(90.dp)
                                     .height(134.dp)
                                     .clip(RoundedCornerShape(10.dp))
-                                    .background(CineSurfaceHigh),
+                                    .background(MaterialTheme.colorScheme.surfaceContainerHigh),
                                 contentAlignment = Alignment.Center,
                             ) {
                                 val posterUrl = picked.fullPosterUrl()
@@ -314,13 +311,13 @@ fun SurpriseMeDialog(
                                     Icon(
                                         imageVector = Icons.Rounded.Star,
                                         contentDescription = null,
-                                        tint = CineGold,
+                                        tint = CineTheme.extraColors.gold,
                                         modifier = Modifier.size(15.dp),
                                     )
                                     Text(
                                         text = String.format(Locale.US, "%.1f TMDB", picked.rating),
                                         style = MaterialTheme.typography.labelLarge,
-                                        color = CineGold,
+                                        color = CineTheme.extraColors.gold,
                                     )
                                     Text(
                                         text = buildString {

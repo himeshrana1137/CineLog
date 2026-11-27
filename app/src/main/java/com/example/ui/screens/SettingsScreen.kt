@@ -64,6 +64,19 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.selectableGroup
+import androidx.compose.material.icons.rounded.Contrast
+import androidx.compose.material.icons.rounded.DarkMode
+import androidx.compose.material.icons.rounded.LightMode
+import androidx.compose.material.icons.rounded.SettingsBrightness
+import androidx.compose.material3.RadioButton
+import androidx.compose.material3.RadioButtonDefaults
+import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.tooling.preview.Preview
 import com.example.R
 import com.example.data.model.AccentPreset
 import com.example.data.repository.LocalAccentPreference
@@ -72,10 +85,9 @@ import com.example.ui.ConnectionTargetStatus
 import com.example.ui.MigrationProgressState
 import com.example.ui.components.UserProfileAvatar
 import com.example.ui.components.formatLastSyncedLabel
-import com.example.ui.theme.CineElevated
-import com.example.ui.theme.CineEmerald
-import com.example.ui.theme.CineGold
-import com.example.ui.theme.CineObsidian
+import com.example.ui.theme.CineLogTheme
+import com.example.ui.theme.CineTheme
+import com.example.ui.theme.ThemeMode
 import com.example.ui.theme.parseHexColorOrDefault
 
 @OptIn(ExperimentalLayoutApi::class)
@@ -85,9 +97,11 @@ fun SettingsScreen(
     userEmail: String?,
     userPhotoUrl: String? = null,
     isOnline: Boolean,
+    themeMode: ThemeMode = ThemeMode.DARK,
     accentPreference: LocalAccentPreference,
     itemsMissingMetadataCount: Int,
     migrationState: MigrationProgressState,
+    onSelectThemeMode: (ThemeMode) -> Unit = {},
     onSelectPreset: (AccentPreset) -> Unit,
     onApplyCustomHex: (String) -> Unit,
     onRunMigration: () -> Unit,
@@ -117,6 +131,14 @@ fun SettingsScreen(
         contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 84.dp + navBarBottom),
         verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
+        // 0. Appearance (Theme Mode: System default / Light / Dark)
+        item {
+            AppearanceSettingsCard(
+                selectedMode = themeMode,
+                onSelectMode = onSelectThemeMode,
+            )
+        }
+
         // 1. Custom Theme Accent Color Picker
         item {
             Surface(
@@ -184,7 +206,7 @@ fun SettingsScreen(
                                         .background(swatchColor)
                                         .border(
                                             width = if (isSelected) 3.dp else 1.dp,
-                                            color = if (isSelected) Color.White else MaterialTheme.colorScheme.outline,
+                                            color = if (isSelected) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.outline,
                                             shape = CircleShape,
                                         ),
                                     contentAlignment = Alignment.Center,
@@ -193,10 +215,10 @@ fun SettingsScreen(
                                         Icon(
                                             imageVector = Icons.Rounded.Check,
                                             contentDescription = "${preset.label} selected",
-                                            tint = if (preset == AccentPreset.YELLOW || preset == AccentPreset.NEON_GREEN) {
-                                                CineObsidian
+                                            tint = if (swatchColor.luminance() > 0.5f) {
+                                                MaterialTheme.colorScheme.scrim
                                             } else {
-                                                Color.White
+                                                CineTheme.extraColors.posterOverlayContent
                                             },
                                             modifier = Modifier.size(20.dp),
                                         )
@@ -229,8 +251,8 @@ fun SettingsScreen(
                             singleLine = true,
                             label = { Text("Custom Hex (#RRGGBB)") },
                             colors = OutlinedTextFieldDefaults.colors(
-                                focusedContainerColor = CineElevated,
-                                unfocusedContainerColor = CineElevated,
+                                focusedContainerColor = MaterialTheme.colorScheme.surfaceVariant,
+                                unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant,
                                 focusedBorderColor = MaterialTheme.colorScheme.primary,
                                 unfocusedBorderColor = MaterialTheme.colorScheme.outline,
                             ),
@@ -295,7 +317,7 @@ fun SettingsScreen(
                             progress = { migrationState.completed.toFloat() / migrationState.total.toFloat() },
                             modifier = Modifier.fillMaxWidth(),
                             color = MaterialTheme.colorScheme.primary,
-                            trackColor = CineElevated,
+                            trackColor = MaterialTheme.colorScheme.surfaceVariant,
                         )
                     }
 
@@ -303,7 +325,7 @@ fun SettingsScreen(
                         Text(
                             text = msg,
                             style = MaterialTheme.typography.labelMedium,
-                            color = CineGold,
+                            color = CineTheme.extraColors.gold,
                         )
                     }
 
@@ -408,12 +430,12 @@ fun SettingsScreen(
                         Icon(
                             imageVector = if (isOnline) Icons.Rounded.CloudDone else Icons.Rounded.CloudOff,
                             contentDescription = null,
-                            tint = if (isOnline) CineEmerald else CineGold,
+                            tint = if (isOnline) CineTheme.extraColors.success else CineTheme.extraColors.warning,
                         )
                         Text(
                             text = if (isOnline) "ONLINE • OFFLINE CACHE READY" else "OFFLINE MODE ACTIVE",
                             style = MaterialTheme.typography.labelLarge,
-                            color = if (isOnline) CineEmerald else CineGold,
+                            color = if (isOnline) CineTheme.extraColors.success else CineTheme.extraColors.warning,
                         )
                     }
                     Text(
@@ -563,7 +585,7 @@ fun SettingsScreen(
 
                     if (connectionCheckState.hasRun) {
                         Surface(
-                            color = CineElevated,
+                            color = MaterialTheme.colorScheme.surfaceVariant,
                             shape = RoundedCornerShape(12.dp),
                             border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.6f)),
                             modifier = Modifier.fillMaxWidth(),
@@ -730,13 +752,13 @@ private fun ConnectionCheckRow(
                         Icon(
                             imageVector = Icons.Rounded.CheckCircle,
                             contentDescription = null,
-                            tint = CineEmerald,
+                            tint = CineTheme.extraColors.success,
                             modifier = Modifier.size(16.dp),
                         )
                         Text(
                             text = stringResource(R.string.settings_connection_ok),
                             style = MaterialTheme.typography.labelLarge,
-                            color = CineEmerald,
+                            color = CineTheme.extraColors.success,
                             fontWeight = FontWeight.Bold,
                             maxLines = 1,
                             softWrap = false,
@@ -777,6 +799,164 @@ private fun ConnectionCheckRow(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
+            )
+        }
+    }
+}
+
+private data class ThemeModeOption(
+    val mode: ThemeMode,
+    val labelRes: Int,
+    val icon: ImageVector,
+)
+
+@Composable
+internal fun AppearanceSettingsCard(
+    selectedMode: ThemeMode,
+    onSelectMode: (ThemeMode) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val options = remember {
+        listOf(
+            ThemeModeOption(ThemeMode.SYSTEM, R.string.settings_theme_system, Icons.Rounded.SettingsBrightness),
+            ThemeModeOption(ThemeMode.LIGHT, R.string.settings_theme_light, Icons.Rounded.LightMode),
+            ThemeModeOption(ThemeMode.DARK, R.string.settings_theme_dark, Icons.Rounded.DarkMode),
+        )
+    }
+
+    Surface(
+        color = MaterialTheme.colorScheme.surface,
+        shape = MaterialTheme.shapes.large,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
+        modifier = modifier
+            .fillMaxWidth()
+            .testTag("settings_appearance_card"),
+    ) {
+        Column(
+            modifier = Modifier.padding(18.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Icon(
+                    imageVector = Icons.Rounded.Contrast,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                )
+                Text(
+                    text = stringResource(R.string.settings_appearance_title).uppercase(),
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.primary,
+                )
+            }
+
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .selectableGroup(),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                options.forEach { option ->
+                    val isSelected = selectedMode == option.mode
+                    Surface(
+                        color = if (isSelected) {
+                            MaterialTheme.colorScheme.primaryContainer
+                        } else {
+                            MaterialTheme.colorScheme.surfaceVariant
+                        },
+                        shape = RoundedCornerShape(12.dp),
+                        border = BorderStroke(
+                            width = if (isSelected) 1.5.dp else 1.dp,
+                            color = if (isSelected) {
+                                MaterialTheme.colorScheme.primary
+                            } else {
+                                MaterialTheme.colorScheme.outline.copy(alpha = 0.6f)
+                            },
+                        ),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(min = 48.dp)
+                            .clip(RoundedCornerShape(12.dp))
+                            .selectable(
+                                selected = isSelected,
+                                onClick = { onSelectMode(option.mode) },
+                                role = Role.RadioButton,
+                            )
+                            .testTag("theme_mode_${option.mode.key}"),
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 12.dp, vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        ) {
+                            Icon(
+                                imageVector = option.icon,
+                                contentDescription = null,
+                                tint = if (isSelected) {
+                                    MaterialTheme.colorScheme.primary
+                                } else {
+                                    MaterialTheme.colorScheme.onSurfaceVariant
+                                },
+                                modifier = Modifier.size(20.dp),
+                            )
+                            Text(
+                                text = stringResource(option.labelRes),
+                                style = MaterialTheme.typography.bodyLarge,
+                                fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Medium,
+                                color = MaterialTheme.colorScheme.onSurface,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.weight(1f),
+                            )
+                            RadioButton(
+                                selected = isSelected,
+                                onClick = null,
+                                colors = RadioButtonDefaults.colors(
+                                    selectedColor = MaterialTheme.colorScheme.primary,
+                                    unselectedColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                                ),
+                            )
+                        }
+                    }
+                }
+            }
+
+            Text(
+                text = stringResource(R.string.settings_theme_system_caption),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+}
+
+@Preview(name = "Appearance Card - Dark", showBackground = true)
+@Composable
+private fun AppearanceSettingsCardDarkPreview() {
+    CineLogTheme(themeMode = ThemeMode.DARK) {
+        Surface(color = MaterialTheme.colorScheme.background) {
+            AppearanceSettingsCard(
+                selectedMode = ThemeMode.DARK,
+                onSelectMode = {},
+                modifier = Modifier.padding(16.dp),
+            )
+        }
+    }
+}
+
+@Preview(name = "Appearance Card - Light", showBackground = true)
+@Composable
+private fun AppearanceSettingsCardLightPreview() {
+    CineLogTheme(themeMode = ThemeMode.LIGHT) {
+        Surface(color = MaterialTheme.colorScheme.background) {
+            AppearanceSettingsCard(
+                selectedMode = ThemeMode.LIGHT,
+                onSelectMode = {},
+                modifier = Modifier.padding(16.dp),
             )
         }
     }

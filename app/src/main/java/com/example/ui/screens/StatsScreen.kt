@@ -77,10 +77,7 @@ import com.example.ui.WatchedUiState
 import com.example.ui.components.CineEmptyState
 import com.example.ui.components.GenreAnalyticsSection
 import com.example.ui.components.LibrarySyncErrorState
-import com.example.ui.theme.CineCharcoal
-import com.example.ui.theme.CineElevated
-import com.example.ui.theme.CineGold
-import com.example.ui.theme.CineSurfaceHigh
+import com.example.ui.theme.CineTheme
 import java.text.NumberFormat
 import java.util.Locale
 
@@ -177,7 +174,7 @@ fun StatsScreen(
                         fontWeight = FontWeight.Bold,
                     )
                     Surface(
-                        color = CineElevated,
+                        color = MaterialTheme.colorScheme.surfaceVariant,
                         shape = RoundedCornerShape(50),
                         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
                         modifier = Modifier.testTag("stats_watched_count_badge"),
@@ -185,7 +182,7 @@ fun StatsScreen(
                         Text(
                             text = stringResource(R.string.movies_watched_count, totalAllWatchedCount),
                             style = MaterialTheme.typography.labelMedium,
-                            color = CineGold,
+                            color = CineTheme.extraColors.gold,
                             fontWeight = FontWeight.Bold,
                             modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
                         )
@@ -208,7 +205,7 @@ fun StatsScreen(
                             colors = SegmentedButtonDefaults.colors(
                                 activeContainerColor = MaterialTheme.colorScheme.primaryContainer,
                                 activeContentColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                                inactiveContainerColor = CineElevated,
+                                inactiveContainerColor = MaterialTheme.colorScheme.surfaceVariant,
                                 inactiveContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
                             ),
                             modifier = Modifier.testTag("stats_filter_${filter.name.lowercase()}"),
@@ -319,9 +316,9 @@ fun StatsScreen(
         if (stats.itemsMissingMetadataCount > 0) {
             item {
                 Surface(
-                    color = CineGold.copy(alpha = 0.12f),
+                    color = CineTheme.extraColors.warning.copy(alpha = 0.12f),
                     shape = MaterialTheme.shapes.medium,
-                    border = BorderStroke(1.dp, CineGold.copy(alpha = 0.45f)),
+                    border = BorderStroke(1.dp, CineTheme.extraColors.warning.copy(alpha = 0.45f)),
                     modifier = Modifier.fillMaxWidth(),
                 ) {
                     Row(
@@ -335,7 +332,7 @@ fun StatsScreen(
                             Text(
                                 text = "${stats.itemsMissingMetadataCount} older ${if (stats.itemsMissingMetadataCount == 1) "entry needs" else "entries need"} sync",
                                 style = MaterialTheme.typography.titleMedium,
-                                color = CineGold,
+                                color = CineTheme.extraColors.warning,
                             )
                             Text(
                                 text = "Fetch missing runtimes, cast, directors & languages from TMDB.",
@@ -390,7 +387,7 @@ fun StatsScreen(
                             ) {
                                 stats.languageStats.forEach { lang ->
                                     Surface(
-                                        color = CineElevated,
+                                        color = MaterialTheme.colorScheme.surfaceVariant,
                                         shape = RoundedCornerShape(50),
                                         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
                                     ) {
@@ -558,7 +555,7 @@ fun StatsScreen(
                             horizontalArrangement = Arrangement.spacedBy(6.dp),
                         ) {
                             Surface(
-                                color = CineElevated,
+                                color = MaterialTheme.colorScheme.surfaceVariant,
                                 shape = RoundedCornerShape(50),
                             ) {
                                 Text(
@@ -591,7 +588,7 @@ private fun StatMetricTile(
     modifier: Modifier = Modifier,
 ) {
     Surface(
-        color = CineElevated,
+        color = MaterialTheme.colorScheme.surfaceVariant,
         shape = RoundedCornerShape(12.dp),
         modifier = modifier,
     ) {
@@ -633,7 +630,7 @@ fun PersonWatchedMoviesSheet(
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
-        containerColor = CineCharcoal,
+        containerColor = MaterialTheme.colorScheme.surface,
         contentColor = MaterialTheme.colorScheme.onSurface,
     ) {
         Column(
@@ -681,7 +678,7 @@ fun PersonWatchedMoviesSheet(
             ) {
                 items(personStat.movies, key = { it.uniqueKey }) { movie ->
                     Surface(
-                        color = CineElevated,
+                        color = MaterialTheme.colorScheme.surfaceVariant,
                         shape = MaterialTheme.shapes.medium,
                         modifier = Modifier
                             .fillMaxWidth()
@@ -701,7 +698,7 @@ fun PersonWatchedMoviesSheet(
                                     .width(48.dp)
                                     .height(72.dp)
                                     .clip(RoundedCornerShape(8.dp))
-                                    .background(CineSurfaceHigh),
+                                    .background(MaterialTheme.colorScheme.surfaceContainerHigh),
                                 contentAlignment = Alignment.Center,
                             ) {
                                 val url = movie.fullPosterUrl()
@@ -745,13 +742,13 @@ fun PersonWatchedMoviesSheet(
                                         Icon(
                                             imageVector = Icons.Rounded.Star,
                                             contentDescription = null,
-                                            tint = CineGold,
+                                            tint = CineTheme.extraColors.gold,
                                             modifier = Modifier.size(14.dp),
                                         )
                                         Text(
                                             text = "${movie.userRating}/5",
                                             style = MaterialTheme.typography.labelMedium,
-                                            color = CineGold,
+                                            color = CineTheme.extraColors.gold,
                                         )
                                     }
                                 }

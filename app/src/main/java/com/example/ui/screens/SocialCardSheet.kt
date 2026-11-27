@@ -59,8 +59,6 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.example.data.model.WatchedMovie
-import com.example.ui.theme.CineCharcoal
-import com.example.ui.theme.CineElevated
 import com.example.util.MediaSaver
 import com.example.util.SocialCardFormat
 import kotlinx.coroutines.launch
@@ -104,7 +102,7 @@ fun SocialCardSheet(
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
-        containerColor = CineCharcoal,
+        containerColor = MaterialTheme.colorScheme.surface,
         contentColor = MaterialTheme.colorScheme.onSurface,
     ) {
         Column(
@@ -178,7 +176,7 @@ fun SocialCardSheet(
 
             // Live Rendered PNG Card Preview
             Surface(
-                color = CineElevated,
+                color = MaterialTheme.colorScheme.surfaceVariant,
                 shape = RoundedCornerShape(16.dp),
                 border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
                 modifier = Modifier
@@ -209,7 +207,7 @@ fun SocialCardSheet(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .height(260.dp)
-                                .background(CineElevated),
+                                .background(MaterialTheme.colorScheme.surfaceVariant),
                             contentAlignment = Alignment.Center,
                         ) {
                             CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)

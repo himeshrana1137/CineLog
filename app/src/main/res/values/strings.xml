@@ -64,4 +64,9 @@
     <string name="settings_connection_check_button">Connection check</string>
     <string name="settings_connection_checking">Checking…</string>
     <string name="settings_connection_ok">OK</string>
+    <string name="settings_appearance_title">APPEARANCE</string>
+    <string name="settings_theme_system">System default</string>
+    <string name="settings_theme_light">Light</string>
+    <string name="settings_theme_dark">Dark</string>
+    <string name="settings_theme_system_caption">System default follows your phone\'s theme</string>
 </resources>

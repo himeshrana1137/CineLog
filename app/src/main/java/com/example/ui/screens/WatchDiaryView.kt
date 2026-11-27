@@ -53,9 +53,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import com.example.data.model.WatchedMovie
-import com.example.ui.theme.CineElevated
-import com.example.ui.theme.CineGold
-import com.example.ui.theme.CineSurfaceHigh
+import com.example.ui.theme.CineTheme
 import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Locale
@@ -194,7 +192,7 @@ fun WatchDiaryView(
                                                 when {
                                                     isSelected -> MaterialTheme.colorScheme.primary
                                                     hasWatches -> MaterialTheme.colorScheme.primaryContainer
-                                                    else -> CineElevated.copy(alpha = 0.45f)
+                                                    else -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)
                                                 }
                                             )
                                             .border(
@@ -307,7 +305,7 @@ fun WatchDiaryView(
                                 .width(56.dp)
                                 .height(84.dp)
                                 .clip(RoundedCornerShape(8.dp))
-                                .background(CineElevated),
+                                .background(MaterialTheme.colorScheme.surfaceVariant),
                             contentAlignment = Alignment.Center,
                         ) {
                             val posterUrl = movie.fullPosterUrl()
@@ -355,13 +353,13 @@ fun WatchDiaryView(
                                     Icon(
                                         imageVector = Icons.Rounded.Star,
                                         contentDescription = null,
-                                        tint = CineGold,
+                                        tint = CineTheme.extraColors.gold,
                                         modifier = Modifier.size(14.dp),
                                     )
                                     Text(
                                         text = "${movie.userRating}/5",
                                         style = MaterialTheme.typography.labelMedium,
-                                        color = CineGold,
+                                        color = CineTheme.extraColors.gold,
                                     )
                                 }
                             }

@@ -89,9 +89,7 @@ import com.example.ui.RecommendationsUiState
 import com.example.ui.components.CineEmptyState
 import com.example.ui.components.DiscoverMovieCard
 import com.example.ui.components.MovieSkeletonCard
-import com.example.ui.theme.CineCharcoal
-import com.example.ui.theme.CineElevated
-import com.example.ui.theme.CineGold
+import com.example.ui.theme.CineTheme
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -194,14 +192,14 @@ fun DiscoverScreen(
                     item(key = "discover_error_card_item") {
                         Surface(
                             color = if (discoverState.isMissingApiKey) {
-                                CineElevated
+                                MaterialTheme.colorScheme.surfaceVariant
                             } else {
                                 MaterialTheme.colorScheme.errorContainer
                             },
                             shape = MaterialTheme.shapes.large,
                             border = BorderStroke(
                                 1.dp,
-                                if (discoverState.isMissingApiKey) CineGold.copy(alpha = 0.5f)
+                                if (discoverState.isMissingApiKey) CineTheme.extraColors.warning.copy(alpha = 0.5f)
                                 else MaterialTheme.colorScheme.error.copy(alpha = 0.5f)
                             ),
                             modifier = Modifier
@@ -224,7 +222,7 @@ fun DiscoverScreen(
                                             Icons.Rounded.WarningAmber
                                         },
                                         contentDescription = null,
-                                        tint = if (discoverState.isMissingApiKey) CineGold else MaterialTheme.colorScheme.error,
+                                        tint = if (discoverState.isMissingApiKey) CineTheme.extraColors.warning else MaterialTheme.colorScheme.error,
                                     )
                                     Text(
                                         text = if (discoverState.isMissingApiKey) {
@@ -513,7 +511,7 @@ fun DiscoverScreen(
                                     DiscoverSectionHeader(
                                         title = "FOR YOU",
                                         icon = Icons.Rounded.AutoAwesome,
-                                        iconTint = CineGold,
+                                        iconTint = CineTheme.extraColors.gold,
                                         subtitle = if (forYouState.seedTitles.isNotEmpty()) {
                                             "Because you loved ${forYouState.seedTitles.take(2).joinToString(" & ")}"
                                         } else null,
@@ -782,7 +780,7 @@ private fun DiscoverLanguagePickerSheet(
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
-        containerColor = CineCharcoal,
+        containerColor = MaterialTheme.colorScheme.surface,
         contentColor = MaterialTheme.colorScheme.onSurface,
         modifier = Modifier.testTag("discover_language_sheet"),
     ) {
@@ -868,7 +866,7 @@ private fun LanguagePickerRowItem(
     testTag: String,
 ) {
     Surface(
-        color = if (isSelected) MaterialTheme.colorScheme.primaryContainer else CineElevated,
+        color = if (isSelected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant,
         shape = RoundedCornerShape(12.dp),
         border = BorderStroke(
             1.dp,
@@ -965,9 +963,9 @@ private fun DiscoverOfflineDataBanner(
     modifier: Modifier = Modifier,
 ) {
     Surface(
-        color = CineElevated,
+        color = MaterialTheme.colorScheme.surfaceVariant,
         shape = RoundedCornerShape(12.dp),
-        border = BorderStroke(1.dp, CineGold.copy(alpha = 0.5f)),
+        border = BorderStroke(1.dp, CineTheme.extraColors.warning.copy(alpha = 0.5f)),
         modifier = modifier
             .fillMaxWidth()
             .testTag("discover_offline_data_banner"),
@@ -987,13 +985,13 @@ private fun DiscoverOfflineDataBanner(
                 Icon(
                     imageVector = Icons.Rounded.CloudOff,
                     contentDescription = null,
-                    tint = CineGold,
+                    tint = CineTheme.extraColors.warning,
                     modifier = Modifier.size(18.dp),
                 )
                 Text(
                     text = stringResource(R.string.discover_offline_data_label),
                     style = MaterialTheme.typography.labelLarge,
-                    color = CineGold,
+                    color = CineTheme.extraColors.warning,
                     fontWeight = FontWeight.SemiBold,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,

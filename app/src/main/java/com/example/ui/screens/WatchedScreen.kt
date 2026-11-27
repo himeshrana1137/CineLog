@@ -97,11 +97,7 @@ import com.example.ui.components.LanguageFilterRow
 import com.example.ui.components.LibrarySyncErrorState
 import com.example.ui.components.MovieSkeletonCard
 import com.example.ui.components.TvStatusPill
-import com.example.ui.theme.CineCharcoal
-import com.example.ui.theme.CineElevated
-import com.example.ui.theme.CineEmerald
-import com.example.ui.theme.CineGold
-import com.example.ui.theme.CineSurfaceHigh
+import com.example.ui.theme.CineTheme
 import java.text.SimpleDateFormat
 import java.util.Locale
 
@@ -164,7 +160,7 @@ fun WatchedScreen(
             PullToRefreshDefaults.Indicator(
                 state = pullToRefreshState,
                 isRefreshing = isSyncing,
-                containerColor = CineElevated,
+                containerColor = MaterialTheme.colorScheme.surfaceVariant,
                 color = MaterialTheme.colorScheme.primary,
                 modifier = Modifier.align(Alignment.TopCenter),
             )
@@ -305,7 +301,7 @@ fun WatchedScreen(
                                     key = "watched_active_search_bar",
                                 ) {
                                     Surface(
-                                        color = CineElevated,
+                                        color = MaterialTheme.colorScheme.surfaceVariant,
                                         shape = RoundedCornerShape(10.dp),
                                         border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.5f)),
                                         modifier = Modifier.fillMaxWidth(),
@@ -355,7 +351,7 @@ fun WatchedScreen(
                                     key = "watched_active_filters_bar",
                                 ) {
                                     Surface(
-                                        color = CineElevated,
+                                        color = MaterialTheme.colorScheme.surfaceVariant,
                                         shape = RoundedCornerShape(10.dp),
                                         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
                                         modifier = Modifier.fillMaxWidth(),
@@ -613,7 +609,7 @@ private fun WatchedSummaryHeaderCard(
             }
             Spacer(modifier = Modifier.width(12.dp))
             Surface(
-                color = CineElevated,
+                color = MaterialTheme.colorScheme.surfaceVariant,
                 shape = RoundedCornerShape(12.dp),
                 border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
             ) {
@@ -625,7 +621,7 @@ private fun WatchedSummaryHeaderCard(
                     Icon(
                         imageVector = Icons.Rounded.Star,
                         contentDescription = null,
-                        tint = CineGold,
+                        tint = CineTheme.extraColors.gold,
                         modifier = Modifier.size(18.dp),
                     )
                     Text(
@@ -664,7 +660,7 @@ private fun WatchedFiltersBottomSheet(
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
-        containerColor = CineCharcoal,
+        containerColor = MaterialTheme.colorScheme.surface,
         contentColor = MaterialTheme.colorScheme.onSurface,
         modifier = Modifier.testTag("watched_filters_sheet"),
     ) {
@@ -704,7 +700,7 @@ private fun WatchedFiltersBottomSheet(
 
             // 1. Media Type & Status
             FilterSectionLabel("MEDIA TYPE & STATUS")
-            ScrollableChipStrip(fadeColor = CineCharcoal) {
+            ScrollableChipStrip(fadeColor = MaterialTheme.colorScheme.surface) {
                 items(WatchedFilterOption.entries, key = { it.name }) { filter ->
                     FilterChip(
                         selected = filterOption == filter,
@@ -717,8 +713,8 @@ private fun WatchedFiltersBottomSheet(
                             )
                         },
                         colors = FilterChipDefaults.filterChipColors(
-                            selectedContainerColor = CineGold.copy(alpha = 0.2f),
-                            selectedLabelColor = CineGold,
+                            selectedContainerColor = CineTheme.extraColors.gold.copy(alpha = 0.2f),
+                            selectedLabelColor = CineTheme.extraColors.gold,
                         ),
                         modifier = Modifier.testTag("filter_chip_${filter.name.lowercase()}"),
                     )
@@ -727,7 +723,7 @@ private fun WatchedFiltersBottomSheet(
 
             // 2. Sort By
             FilterSectionLabel("SORT BY")
-            ScrollableChipStrip(fadeColor = CineCharcoal) {
+            ScrollableChipStrip(fadeColor = MaterialTheme.colorScheme.surface) {
                 items(WatchedSortOption.entries, key = { it.name }) { option ->
                     FilterChip(
                         selected = sortOption == option,
@@ -750,7 +746,7 @@ private fun WatchedFiltersBottomSheet(
 
             // 3. Vibe / Quick Reaction
             FilterSectionLabel("VIBE")
-            ScrollableChipStrip(fadeColor = CineCharcoal) {
+            ScrollableChipStrip(fadeColor = MaterialTheme.colorScheme.surface) {
                 item(key = "vibe_all") {
                     FilterChip(
                         selected = selectedReaction.isEmpty(),
@@ -797,7 +793,7 @@ private fun WatchedFiltersBottomSheet(
                     onLanguageSelected = onLanguageSelected,
                     testTagPrefix = "watched",
                     contentPadding = PaddingValues(horizontal = 20.dp),
-                    fadeColor = CineCharcoal,
+                    fadeColor = MaterialTheme.colorScheme.surface,
                 )
             }
 
@@ -923,7 +919,7 @@ private fun WatchedMovieListCard(
                         .width(86.dp)
                         .height(128.dp)
                         .clip(RoundedCornerShape(10.dp))
-                        .background(CineElevated),
+                        .background(MaterialTheme.colorScheme.surfaceVariant),
                     contentAlignment = Alignment.Center,
                 ) {
                     val posterUrl = movie.fullPosterUrl()
@@ -963,7 +959,7 @@ private fun WatchedMovieListCard(
                     val reaction = movie.quickReaction
                     if (reaction != null) {
                         Surface(
-                            color = ColorBlackOverlay,
+                            color = CineTheme.extraColors.posterOverlayScrim,
                             shape = RoundedCornerShape(6.dp),
                             modifier = Modifier
                                 .align(Alignment.BottomEnd)
@@ -997,7 +993,7 @@ private fun WatchedMovieListCard(
                         )
                         Spacer(modifier = Modifier.width(6.dp))
                         Surface(
-                            color = CineSurfaceHigh,
+                            color = MaterialTheme.colorScheme.surfaceContainerHigh,
                             shape = RoundedCornerShape(6.dp),
                         ) {
                             Row(
@@ -1008,7 +1004,7 @@ private fun WatchedMovieListCard(
                                 Icon(
                                     imageVector = Icons.Rounded.Star,
                                     contentDescription = null,
-                                    tint = CineGold,
+                                    tint = CineTheme.extraColors.gold,
                                     modifier = Modifier.size(12.dp),
                                 )
                                 Text(
@@ -1056,13 +1052,13 @@ private fun WatchedMovieListCard(
                                 )
                                 if (!nextUpLabel.isNullOrBlank()) {
                                     Surface(
-                                        color = CineGold.copy(alpha = 0.16f),
+                                        color = CineTheme.extraColors.warningContainer,
                                         shape = RoundedCornerShape(6.dp),
                                     ) {
                                         Text(
                                             text = nextUpLabel,
                                             style = MaterialTheme.typography.labelMedium,
-                                            color = CineGold,
+                                            color = CineTheme.extraColors.gold,
                                             fontWeight = FontWeight.Bold,
                                             modifier = Modifier.padding(horizontal = 7.dp, vertical = 2.dp),
                                         )
@@ -1079,11 +1075,11 @@ private fun WatchedMovieListCard(
                                 LinearProgressIndicator(
                                     progress = { movie.tvProgressFraction() },
                                     color = if (tvStatus == TvWatchStatus.COMPLETED) {
-                                        CineEmerald
+                                        CineTheme.extraColors.success
                                     } else {
                                         MaterialTheme.colorScheme.primary
                                     },
-                                    trackColor = CineSurfaceHigh,
+                                    trackColor = MaterialTheme.colorScheme.surfaceContainerHigh,
                                     modifier = Modifier
                                         .fillMaxWidth()
                                         .height(6.dp)
@@ -1101,14 +1097,14 @@ private fun WatchedMovieListCard(
                     ) {
                         if (movie.watchCount > 1) {
                             Surface(
-                                color = CineGold.copy(alpha = 0.16f),
+                                color = CineTheme.extraColors.warningContainer,
                                 shape = RoundedCornerShape(6.dp),
-                                border = BorderStroke(1.dp, CineGold.copy(alpha = 0.45f)),
+                                border = BorderStroke(1.dp, CineTheme.extraColors.gold.copy(alpha = 0.45f)),
                             ) {
                                 Text(
                                     text = "Watched ${movie.watchCount}×",
                                     style = MaterialTheme.typography.labelMedium,
-                                    color = CineGold,
+                                    color = CineTheme.extraColors.gold,
                                     fontWeight = FontWeight.Bold,
                                     modifier = Modifier.padding(horizontal = 7.dp, vertical = 2.dp),
                                 )
@@ -1116,7 +1112,7 @@ private fun WatchedMovieListCard(
                         }
                         if (movie.languageName.isNotBlank()) {
                             Surface(
-                                color = CineElevated,
+                                color = MaterialTheme.colorScheme.surfaceVariant,
                                 shape = RoundedCornerShape(6.dp),
                                 border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
                             ) {
@@ -1154,7 +1150,7 @@ private fun WatchedMovieListCard(
                                 Icon(
                                     imageVector = Icons.Rounded.Star,
                                     contentDescription = null,
-                                    tint = if (idx < movie.userRating) CineGold else CineSurfaceHigh,
+                                    tint = if (idx < movie.userRating) CineTheme.extraColors.gold else MaterialTheme.colorScheme.surfaceContainerHigh,
                                     modifier = Modifier.size(16.dp),
                                 )
                             }
@@ -1162,7 +1158,7 @@ private fun WatchedMovieListCard(
                             Text(
                                 text = "${movie.userRating}/5",
                                 style = MaterialTheme.typography.labelMedium,
-                                color = CineGold,
+                                color = CineTheme.extraColors.gold,
                                 fontWeight = FontWeight.Bold,
                             )
                         } else {
@@ -1230,7 +1226,7 @@ private fun WatchedMovieListCard(
                     DropdownMenu(
                         expanded = reactionMenuExpanded,
                         onDismissRequest = { reactionMenuExpanded = false },
-                        containerColor = CineCharcoal,
+                        containerColor = MaterialTheme.colorScheme.surface,
                     ) {
                         QuickReaction.entries.forEach { reaction ->
                             val selected = movie.reaction == reaction.key
@@ -1276,7 +1272,7 @@ private fun WatchedMovieListCard(
                     Icon(
                         imageVector = Icons.Rounded.Repeat,
                         contentDescription = "Watched again",
-                        tint = CineGold,
+                        tint = CineTheme.extraColors.gold,
                     )
                 }
 
@@ -1325,5 +1321,3 @@ private fun WatchedMovieListCard(
         }
     }
 }
-
-private val ColorBlackOverlay = Color(0xCC0B0B0F)

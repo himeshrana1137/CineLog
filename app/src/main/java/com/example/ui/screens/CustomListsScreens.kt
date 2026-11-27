@@ -77,10 +77,7 @@ import com.example.ui.CustomListsUiState
 import com.example.ui.ListsSubTab
 import com.example.ui.components.CineEmptyState
 import com.example.ui.components.LibrarySyncErrorState
-import com.example.ui.theme.CineCharcoal
-import com.example.ui.theme.CineElevated
-import com.example.ui.theme.CineGold
-import com.example.ui.theme.CineSurfaceHigh
+import com.example.ui.theme.CineTheme
 import java.util.Locale
 
 @Composable
@@ -298,7 +295,7 @@ fun CustomListsTabContent(
     deletingList?.let { list ->
         AlertDialog(
             onDismissRequest = { deletingList = null },
-            containerColor = CineCharcoal,
+            containerColor = MaterialTheme.colorScheme.surface,
             title = { Text("Delete \"${list.name}\"?") },
             text = { Text("This removes the custom list (${list.items.size} items) from your account. Your Watched library won't be affected.") },
             confirmButton = {
@@ -420,7 +417,7 @@ private fun PosterCollage2x2(
     modifier: Modifier = Modifier,
 ) {
     Surface(
-        color = CineElevated,
+        color = MaterialTheme.colorScheme.surfaceVariant,
         shape = RoundedCornerShape(10.dp),
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
         modifier = modifier.clip(RoundedCornerShape(10.dp)),
@@ -458,7 +455,7 @@ private fun CollageTile(
     modifier: Modifier = Modifier,
 ) {
     Box(
-        modifier = modifier.background(CineSurfaceHigh),
+        modifier = modifier.background(MaterialTheme.colorScheme.surfaceContainerHigh),
         contentAlignment = Alignment.Center,
     ) {
         if (url != null) {
@@ -493,7 +490,7 @@ private fun ListNameDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        containerColor = CineCharcoal,
+        containerColor = MaterialTheme.colorScheme.surface,
         title = { Text(title) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -504,8 +501,8 @@ private fun ListNameDialog(
                     label = { Text("List Name") },
                     placeholder = { Text("e.g. Sci-Fi Mind-Benders") },
                     colors = OutlinedTextFieldDefaults.colors(
-                        focusedContainerColor = CineElevated,
-                        unfocusedContainerColor = CineElevated,
+                        focusedContainerColor = MaterialTheme.colorScheme.surfaceVariant,
+                        unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant,
                     ),
                     modifier = Modifier
                         .fillMaxWidth()
@@ -518,8 +515,8 @@ private fun ListNameDialog(
                     maxLines = 3,
                     label = { Text("Description (optional)") },
                     colors = OutlinedTextFieldDefaults.colors(
-                        focusedContainerColor = CineElevated,
-                        unfocusedContainerColor = CineElevated,
+                        focusedContainerColor = MaterialTheme.colorScheme.surfaceVariant,
+                        unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant,
                     ),
                     modifier = Modifier
                         .fillMaxWidth()
@@ -557,7 +554,7 @@ fun AddToListSheet(
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
-        containerColor = CineCharcoal,
+        containerColor = MaterialTheme.colorScheme.surface,
         contentColor = MaterialTheme.colorScheme.onSurface,
     ) {
         Column(
@@ -617,8 +614,8 @@ fun AddToListSheet(
                     singleLine = true,
                     placeholder = { Text("New list name…") },
                     colors = OutlinedTextFieldDefaults.colors(
-                        focusedContainerColor = CineElevated,
-                        unfocusedContainerColor = CineElevated,
+                        focusedContainerColor = MaterialTheme.colorScheme.surfaceVariant,
+                        unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant,
                     ),
                     modifier = Modifier
                         .weight(1f)
@@ -661,7 +658,7 @@ fun AddToListSheet(
                     items(lists, key = { it.id }) { list ->
                         val isMember = list.containsMedia(target.movieId, target.mediaType)
                         Surface(
-                            color = if (isMember) MaterialTheme.colorScheme.primaryContainer else CineElevated,
+                            color = if (isMember) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant,
                             shape = MaterialTheme.shapes.medium,
                             border = BorderStroke(
                                 1.dp,
@@ -721,7 +718,7 @@ fun CustomListDetailsSheet(
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
-        containerColor = CineCharcoal,
+        containerColor = MaterialTheme.colorScheme.surface,
         contentColor = MaterialTheme.colorScheme.onSurface,
     ) {
         Column(
@@ -783,7 +780,7 @@ fun CustomListDetailsSheet(
                 ) {
                     items(list.items, key = { it.uniqueKey }) { entry ->
                         Surface(
-                            color = CineElevated,
+                            color = MaterialTheme.colorScheme.surfaceVariant,
                             shape = MaterialTheme.shapes.medium,
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -805,7 +802,7 @@ fun CustomListDetailsSheet(
                                         .width(46.dp)
                                         .aspectRatio(2f / 3f)
                                         .clip(RoundedCornerShape(8.dp))
-                                        .background(CineSurfaceHigh),
+                                        .background(MaterialTheme.colorScheme.surfaceContainerHigh),
                                     contentAlignment = Alignment.Center,
                                 ) {
                                     val posterUrl = entry.fullPosterUrl()
@@ -849,13 +846,13 @@ fun CustomListDetailsSheet(
                                         Icon(
                                             imageVector = Icons.Rounded.Star,
                                             contentDescription = null,
-                                            tint = CineGold,
+                                            tint = CineTheme.extraColors.gold,
                                             modifier = Modifier.size(13.dp),
                                         )
                                         Text(
                                             text = String.format(Locale.US, "%.1f", entry.rating),
                                             style = MaterialTheme.typography.labelMedium,
-                                            color = CineGold,
+                                            color = CineTheme.extraColors.gold,
                                         )
                                     }
                                 }
