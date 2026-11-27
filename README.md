@@ -81,6 +81,7 @@ CineLog is a native Android cinema tracking platform crafted for moviegoers and 
 - **Real-Time Cloud Sync**: Realtime Firestore synchronization via active snapshot listeners keeps your history updated across devices.
 - **Offline-First Architecture**: 100 MB persistent Firestore cache coupled with a 150 MB Coil image disk cache for instant offline browsing.
 - **Network State Awareness**: Live connectivity observer that presents a discreet status banner when operating offline.
+- **Manual Sync & Recovery**: Auth-aware Firestore listeners attach after sign-in and recover from errors, backed by a **Sync now** button, pull-to-refresh on Watched, and a **Last synced** time in Settings.
 
 ### 🔍 Discover and search
 - **Combined Movies & TV Search**: Unified exploration across the entire TMDB catalog with dedicated filters for All, Movies, and TV Shows.
@@ -90,6 +91,7 @@ CineLog is a native Android cinema tracking platform crafted for moviegoers and 
 - **Regional & Language Filtering**: Filter by original audio language (Hindi, English, regional Indian cinema, foreign languages).
 - **India OTT Streaming Providers**: View real-time Stream, Rent, and Buy provider badges for the India region (`IN`) powered by JustWatch data.
 - **Embedded Video Previews**: Lazy-loaded YouTube trailers with season-preferred video selection via `android-youtube-player`.
+- **Reliable TMDB Access**: Uses DNS over HTTPS fallback (Cloudflare, then Google, then system DNS) strictly for TMDB hosts, paired with bounded retries, an error card with a **Retry** button, cached **Offline data**, and a **Connection check** tool in Settings.
 
 ### 🍿 Tracking
 - **Dual Lists**: Dedicated Watched archive and Watchlist with single-tap status toggling from cards and details sheets.
@@ -119,6 +121,7 @@ CineLog is a native Android cinema tracking platform crafted for moviegoers and 
 ### ✨ Extras
 - **Spoiler-Free Social Cards**: Export clean viewing summary graphics in 9:16 Story (1080x1920) or 1:1 Square (1080x1080) for Instagram, WhatsApp, or Twitter sharing without revealing notes or spoilers.
 - **Phone Wallpaper Cropper**: Interactive pan-and-zoom 9:16 aspect ratio poster cropper with gallery save.
+- **Appearance**: Choose between **System default**, **Light**, and **Dark** theme modes in Settings (saved per device, defaulting to Dark).
 - **Custom Theme Accent Picker**: Personalize the app's visual identity with Cinema Red, Gold Yellow, Electric Blue, Royal Purple, Neon Green, or any custom `#RRGGBB` hex code.
 - **Cinematic Login Wall**: Full-screen Marvel Studios poster slideshow (`with_companies=420`) with Ken Burns zoom, 24-hour cache, and trending fallback.
 - **Polished Visual Identity**: Vector Canvas squircle gradient icon, custom brand typography wordmark, animated entry transition, and native Android 12+ splash screen.
@@ -133,7 +136,7 @@ CineLog is a native Android cinema tracking platform crafted for moviegoers and 
 | **UI Framework** | Jetpack Compose | BOM `2024.09.00`, Material 3, Material Icons Extended |
 | **Architecture** | MVVM + Repository Pattern | Clean Architecture with Unidirectional Data Flow (UDF) & StateFlow |
 | **Asynchronous** | Kotlin Coroutines & Flow | `1.10.2` (Android & Core) |
-| **Networking** | Retrofit & OkHttp | Retrofit `2.12.0`, OkHttp `4.10.0` with Logging Interceptor |
+| **Networking** | Retrofit & OkHttp | Retrofit `2.12.0`, OkHttp `4.10.0` with Logging Interceptor & DNS over HTTPS (`okhttp-dnsoverhttps`) |
 | **Serialization** | Moshi | `1.15.2` with KSP (`2.3.5`) Code Generation |
 | **Image Loading** | Coil Compose | `2.7.0` with 150 MB disk cache |
 | **Cloud Database** | Firebase Cloud Firestore | BOM `34.17.0` (with 100 MB persistent offline cache) |
@@ -371,6 +374,14 @@ The project's `.gitignore` file is strictly configured to exclude all of these p
 
 ---
 
+## Troubleshooting
+
+- **Discover keeps loading or shows an error**: Some mobile networks block TMDB DNS lookups. CineLog automatically falls back to DNS over HTTPS for TMDB hosts; if it still fails to load, set your phone's Private DNS to `one.one.one.one`.
+- **Google sign-in fails on a new build**: Run `./gradlew signingReport` and add the debug SHA-1 fingerprint to your Firebase project settings.
+- **`PERMISSION_DENIED` while syncing**: Tap **Sync now**, sign in again, and confirm that your Firestore security rules are deployed.
+
+---
+
 ## Roadmap
 
 ### Completed Milestones
@@ -389,7 +400,10 @@ The project's `.gitignore` file is strictly configured to exclude all of these p
 - [x] Spoiler-free social card generation (Story 9:16 & Square 1:1)
 - [x] Pan-and-zoom 9:16 phone wallpaper cropper
 - [x] Dynamic theme accent color customization
+- [x] System default, Light, and Dark theme modes
 - [x] Animated Marvel poster slideshow login background
+- [x] TMDB DNS-over-HTTPS fallback, bounded retries, offline data cache, and Settings connection check
+- [x] Sync recovery controls (Sync now, pull-to-refresh, Last synced time, and auth-aware listeners)
 - [x] Comprehensive unit and emulator-backed security rule test coverage
 
 ### Planned Enhancements
